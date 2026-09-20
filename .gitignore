@@ -56,3 +56,6 @@ coverage/
 dev-dist/
 sw.js
 workbox-*.js
+
+# --- TypeScript build (tsconfig.node) ---
+dist-types/
