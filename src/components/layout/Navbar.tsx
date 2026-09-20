@@ -16,8 +16,6 @@ import { useAuthStore, useUIStore } from '@/store';
 
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 
-import { NotificacionesDropdown } from '@/features/notificaciones/NotificacionesDropdown';
-
 export function Navbar() {
   const usuario = useAuthStore((s) => s.usuario);
   const logout = useAuthStore((s) => s.logout);

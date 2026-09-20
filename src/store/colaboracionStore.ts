@@ -79,7 +79,7 @@ function colorPorId(id: Id): string {
 // ======================================================================
 // Store
 // ======================================================================
-export const useColaboracionStore = create<ColaboracionState>((set, get) => ({
+export const useColaboracionStore = create<ColaboracionState>((set) => ({
   conectados: [],
   isConnected: false,
   miUsuarioId: null,

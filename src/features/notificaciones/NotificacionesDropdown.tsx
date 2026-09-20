@@ -10,7 +10,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { toast } from '@/store';
+//import { toast } from '@/store';
 import useNotificaciones from './useNotificaciones';
 import type { Notificacion, TipoNotificacion } from '@/api';
 
