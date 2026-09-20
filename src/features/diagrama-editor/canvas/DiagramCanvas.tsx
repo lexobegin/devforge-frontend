@@ -10,7 +10,7 @@
  * - Cursor y selección en vivo (vía colaboracionStore)
  */
 
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -26,15 +26,20 @@ import {
   type Node,
   type Edge,
   useReactFlow,
-} from '@xyflow/react';
+} from "@xyflow/react";
 
-import '@xyflow/react/dist/style.css';
+import "@xyflow/react/dist/style.css";
 
-import { useDiagramaStore, useColaboracionStore, useUIStore, toast } from '@/store';
-import type { ClaseUML } from '@/types';
-import CanvasToolbar from './CanvasToolbar';
-import ClassNode from './ClassNode';
-import RelationshipEdge from './RelationshipEdge';
+import {
+  useDiagramaStore,
+  useColaboracionStore,
+  useUIStore,
+  toast,
+} from "@/store";
+import type { ClaseUML } from "@/types";
+import CanvasToolbar from "./CanvasToolbar";
+import ClassNode from "./ClassNode";
+import RelationshipEdge from "./RelationshipEdge";
 
 // ======================================================================
 // Registro de tipos (fuera del componente para evitar re-renders)
@@ -69,6 +74,9 @@ function DiagramCanvasInner() {
   // Colaboradores conectados (para mostrar sus selecciones)
   const colaboradores = useColaboracionStore((s) => s.conectados);
 
+  // Emisores del WebSocket (registrados por useDiagramSocket)
+  const emisores = useColaboracionStore((s) => s.emisores);
+
   // Preferencias del editor
   const mostrarGrid = useUIStore((s) => s.mostrarGrid);
   const ajustarAGrid = useUIStore((s) => s.ajustarAGrid);
@@ -81,11 +89,11 @@ function DiagramCanvasInner() {
       clases.map((c) => {
         // ¿Algún colaborador tiene esta clase seleccionada?
         const colab = colaboradores.find(
-          (co) => co.seleccion?.tipo === 'clase' && co.seleccion.id === c.id
+          (co) => co.seleccion?.tipo === "clase" && co.seleccion.id === c.id,
         );
         return {
           id: `clase-${c.id}`,
-          type: 'classNode',
+          type: "classNode",
           position: { x: Number(c.pos_x), y: Number(c.pos_y) },
           data: {
             clase: c,
@@ -93,11 +101,10 @@ function DiagramCanvasInner() {
               ? { color: colab.color, nombre: colab.nombre }
               : null,
           },
-          selected:
-            seleccion?.tipo === 'clase' && seleccion.id === c.id,
+          selected: seleccion?.tipo === "clase" && seleccion.id === c.id,
         };
       }),
-    [clases, seleccion, colaboradores]
+    [clases, seleccion, colaboradores],
   );
 
   const edges: Edge[] = useMemo(
@@ -106,7 +113,7 @@ function DiagramCanvasInner() {
         id: `rel-${r.id}`,
         source: `clase-${r.id_clase_origen}`,
         target: `clase-${r.id_clase_destino}`,
-        type: 'relationshipEdge',
+        type: "relationshipEdge",
         data: {
           id: r.id,
           tipo: r.tipo_relacion,
@@ -114,10 +121,9 @@ function DiagramCanvasInner() {
           multiplicidad_destino: r.multiplicidad_destino,
           nombre_asociacion: r.nombre_asociacion,
         },
-        selected:
-          seleccion?.tipo === 'relacion' && seleccion.id === r.id,
+        selected: seleccion?.tipo === "relacion" && seleccion.id === r.id,
       })),
-    [relaciones, seleccion]
+    [relaciones, seleccion],
   );
 
   // ------------------------------------------------------------------
@@ -128,45 +134,41 @@ function DiagramCanvasInner() {
       // Solo permitimos mover y seleccionar desde React Flow;
       // la fuente de verdad es el store.
       for (const change of changes) {
-        if (change.type === 'position' && change.position && change.id) {
-          const claseId = parseInt(change.id.replace('clase-', ''), 10);
-          moverClase(
-            claseId,
-            change.position.x,
-            change.position.y
-          );
-        } else if (change.type === 'select' && change.id) {
+        if (change.type === "position" && change.position && change.id) {
+          const claseId = parseInt(change.id.replace("clase-", ""), 10);
+          moverClase(claseId, change.position.x, change.position.y);
+        } else if (change.type === "select" && change.id) {
           if (change.selected) {
-            const claseId = parseInt(change.id.replace('clase-', ''), 10);
-            seleccionar({ tipo: 'clase', id: claseId });
+            const claseId = parseInt(change.id.replace("clase-", ""), 10);
+            seleccionar({ tipo: "clase", id: claseId });
           }
         }
       }
       // Aplicamos los cambios visuales para que React Flow no se queje
-      //void applyNodeChanges(changes, nodes);
+      void applyNodeChanges(changes, nodes);
     },
     //[moverClase, seleccionar, nodes]
-    [moverClase, seleccionar]
+    [moverClase, seleccionar],
   );
 
   const onEdgesChange = useCallback(
     (changes: EdgeChange[]) => {
       for (const change of changes) {
-        if (change.type === 'select' && change.id && change.selected) {
-          const relId = parseInt(change.id.replace('rel-', ''), 10);
-          seleccionar({ tipo: 'relacion', id: relId });
+        if (change.type === "select" && change.id && change.selected) {
+          const relId = parseInt(change.id.replace("rel-", ""), 10);
+          seleccionar({ tipo: "relacion", id: relId });
         }
       }
-      //void applyEdgeChanges(changes, edges);
+      void applyEdgeChanges(changes, edges);
     },
     //[seleccionar, edges]
-    [seleccionar]
+    [seleccionar],
   );
 
   // Al soltar un nodo tras un drag → persistir en backend
   const onNodeDragStop = useCallback(
-    (_event: React.MouseEvent, node: Node) => {
-      const claseId = parseInt(node.id.replace('clase-', ''), 10);
+    (_event: globalThis.MouseEvent | TouchEvent, node: Node) => {
+      const claseId = parseInt(node.id.replace("clase-", ""), 10);
       const clase = clases.find((c) => c.id === claseId);
       if (!clase) return;
       //// Persistir la posición final (con debounce en otro sitio si hiciera falta)
@@ -180,7 +182,7 @@ function DiagramCanvasInner() {
 
       void actualizarClase(claseId, { pos_x, pos_y });
     },
-    [clases, actualizarClase]
+    [clases, actualizarClase],
   );
 
   // Conectar dos nodos → crear relación
@@ -188,60 +190,77 @@ function DiagramCanvasInner() {
     async (connection: Connection) => {
       if (!connection.source || !connection.target) return;
       if (connection.source === connection.target) {
-        toast.warning('No se puede relacionar una clase consigo misma');
+        toast.warning("No se puede relacionar una clase consigo misma");
         return;
       }
-      const origenId = parseInt(connection.source.replace('clase-', ''), 10);
-      const destinoId = parseInt(connection.target.replace('clase-', ''), 10);
+      const origenId = parseInt(connection.source.replace("clase-", ""), 10);
+      const destinoId = parseInt(connection.target.replace("clase-", ""), 10);
       try {
-        await crearRelacion({
+        const relacionCreada = await crearRelacion({
           id_clase_origen: origenId,
           id_clase_destino: destinoId,
-          tipo_relacion: 'ASOCIACION',
+          tipo_relacion: "ASOCIACION",
         });
-        toast.success('Relación creada');
+        emisores.evento?.("relation_created", {
+          id: relacionCreada.id,
+          id_clase_origen: relacionCreada.id_clase_origen,
+          id_clase_destino: relacionCreada.id_clase_destino,
+          tipo_relacion: relacionCreada.tipo_relacion,
+        });
+        toast.success("Relación creada");
       } catch (err) {
         toast.error(
-          err instanceof Error ? err.message : 'No se pudo crear la relación'
+          err instanceof Error ? err.message : "No se pudo crear la relación",
         );
       }
     },
-    [crearRelacion]
+    [crearRelacion, emisores],
   );
 
   // Click en el canvas vacío → crear clase (si modo add-class)
   const onPaneClick = useCallback(
     async (event: React.MouseEvent) => {
-      if (modoEditor !== 'add-class') return;
+      if (modoEditor !== "add-class") return;
 
       const position = screenToFlowPosition({
         x: event.clientX,
         y: event.clientY,
       });
 
-      const nombre = window.prompt(
-        'Nombre de la nueva clase:',
-        'NuevaClase'
-      );
+      const nombre = window.prompt("Nombre de la nueva clase:", "NuevaClase");
       if (!nombre || !nombre.trim()) return;
 
       try {
-        await crearClase({
+        /*await crearClase({
           nombre: nombre.trim(),
           //pos_x: position.x,
           //pos_y: position.y,
           pos_x: Math.round(position.x * 100) / 100,
           pos_y: Math.round(position.y * 100) / 100,
+        });*/
+
+        const claseCreada = await crearClase({
+          nombre: nombre.trim(),
+          pos_x: Math.round(position.x * 100) / 100,
+          pos_y: Math.round(position.y * 100) / 100,
         });
+        emisores.evento?.("class_created", {
+          id: claseCreada.id,
+          nombre: claseCreada.nombre,
+          pos_x: claseCreada.pos_x,
+          pos_y: claseCreada.pos_y,
+          // ...
+        });
+
         toast.success(`Clase "${nombre.trim()}" creada`);
-        setModoEditor('select');
+        setModoEditor("select");
       } catch (err) {
         toast.error(
-          err instanceof Error ? err.message : 'No se pudo crear la clase'
+          err instanceof Error ? err.message : "No se pudo crear la clase",
         );
       }
     },
-    [modoEditor, screenToFlowPosition, crearClase, setModoEditor]
+    [modoEditor, screenToFlowPosition, crearClase, setModoEditor, emisores],
   );
 
   // ------------------------------------------------------------------
@@ -250,41 +269,41 @@ function DiagramCanvasInner() {
   const cursoresRemotos = colaboradores.filter((c) => c.cursor);
 
 
-  // Dentro del componente:
-const emisores = useColaboracionStore((s) => s.emisores);
+  // 1) Emitir cursor al mover el mouse
+  const handleMouseMove = useCallback(
+    (event: React.MouseEvent) => {
+      if (!emisores.cursor) return;
+      const flowPos = screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      });
+      emisores.cursor(flowPos.x, flowPos.y);
+    },
+    [emisores, screenToFlowPosition],
+  );
 
-// 1) Emitir cursor al mover el mouse
-const handleMouseMove = useCallback(
-  (event: React.MouseEvent) => {
-    if (!emisores.cursor) return;
-    const flowPos = screenToFlowPosition({
-      x: event.clientX,
-      y: event.clientY,
-    });
-    emisores.cursor(flowPos.x, flowPos.y);
-  },
-  [emisores, screenToFlowPosition]
-);
+  // 3) Emitir selección cuando cambia
+  useEffect(() => {
+    if (!seleccion || !emisores.seleccion) return;
+    emisores.seleccion(seleccion.tipo, seleccion.id);
+  }, [seleccion, emisores]);
 
+  // 4) Emitir evento al crear clase
+  // En onPaneClick, después de crearClase():
+  //emisores.evento?.("class_created", { ...claseCreada });
 
-// 3) Emitir selección cuando cambia
-useEffect(() => {
-  if (!seleccion || !emisores.seleccion) return;
-  emisores.seleccion(seleccion.tipo, seleccion.id);
-}, [seleccion, emisores]);
+  // 5) Emitir evento al crear relación
+  //emisores.evento?.("relation_created", { ...relacionCreada });
 
-// 4) Emitir evento al crear clase
-// En onPaneClick, después de crearClase():
-emisores.evento?.('class_created', { ...claseCreada });
-
-// 5) Emitir evento al crear relación
-emisores.evento?.('relation_created', { ...relacionCreada });
-
-// 6) Emitir evento al eliminar clase/relación
-// (cuando estén los handlers de eliminar en el canvas)
+  // 6) Emitir evento al eliminar clase/relación
+  // (cuando estén los handlers de eliminar en el canvas)
 
   return (
-    <div className="relative h-full w-full" ref={wrapperRef} onMouseMove={handleMouseMove}>
+    <div
+      className="relative h-full w-full"
+      ref={wrapperRef}
+      onMouseMove={handleMouseMove}
+    >
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -304,7 +323,12 @@ emisores.evento?.('relation_created', { ...relacionCreada });
         maxZoom={2}
       >
         {mostrarGrid && (
-          <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#334155" />
+          <Background
+            variant={BackgroundVariant.Dots}
+            gap={16}
+            size={1}
+            color="#334155"
+          />
         )}
         <Controls
           position="bottom-right"
@@ -317,7 +341,7 @@ emisores.evento?.('relation_created', { ...relacionCreada });
           position="bottom-left"
           nodeColor={(n) => {
             const c = (n.data as { clase?: ClaseUML })?.clase;
-            return c?.es_abstracta ? '#4f46e5' : '#475569';
+            return c?.es_abstracta ? "#4f46e5" : "#475569";
           }}
           className="!bg-surface-900 !border-surface-800"
         />
@@ -338,11 +362,14 @@ emisores.evento?.('relation_created', { ...relacionCreada });
       ))}
 
       {/* Indicador de modo */}
-      {modoEditor !== 'select' && (
+      {modoEditor !== "select" && (
         <div className="pointer-events-none absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-full bg-brand-600/90 px-3 py-1 text-xs font-medium text-white shadow-lg">
-          {modoEditor === 'add-class' && 'Hacé click en el lienzo para crear una clase'}
-          {modoEditor === 'add-relation' && 'Arrastrá desde un nodo a otro para crear una relación'}
-          {modoEditor === 'add-interface' && 'Hacé click en el lienzo para crear una interfaz'}
+          {modoEditor === "add-class" &&
+            "Hacé click en el lienzo para crear una clase"}
+          {modoEditor === "add-relation" &&
+            "Arrastrá desde un nodo a otro para crear una relación"}
+          {modoEditor === "add-interface" &&
+            "Hacé click en el lienzo para crear una interfaz"}
         </div>
       )}
     </div>
@@ -363,7 +390,7 @@ function RemoteCursor({ x, y, color, nombre }: RemoteCursorProps) {
   return (
     <div
       className="pointer-events-none absolute z-20 transition-all duration-100"
-      style={{ left: x, top: y, transform: 'translate(-2px, -2px)' }}
+      style={{ left: x, top: y, transform: "translate(-2px, -2px)" }}
     >
       <svg className="h-5 w-5 drop-shadow-md" viewBox="0 0 24 24" fill={color}>
         <path d="M5.5 3.21V20.8c0 .45.54.67.85.35l4.86-4.86a.5.5 0 01.35-.15h6.87c.45 0 .67-.54.35-.85L6.35 2.85a.5.5 0 00-.85.36z" />

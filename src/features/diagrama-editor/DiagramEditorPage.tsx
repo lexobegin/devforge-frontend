@@ -21,7 +21,6 @@ import {
   useDiagramaStore,
   useProyectoStore,
   useAuthStore,
-  toast,
 } from '@/store';
 import DiagramCanvas from './canvas/DiagramCanvas';
 import DiagramSidebar from './panels/DiagramSidebar';

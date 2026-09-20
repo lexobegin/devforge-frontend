@@ -130,7 +130,7 @@ export const syncManager = {
     if (todos === 0) return { total: 0, sincronizados: 0, conflictos: 0 };
 
     // Recolectar los diagrama_id únicos con pendientes
-    const items = await syncQueue.pendientes(0);
+    //const items = await syncQueue.pendientes(0);
     // La API `pendientes(idDiagrama)` requiere un id; esto no sirve para
     // "todos". Iteramos por la base directamente:
     const { db } = await import('./indexedDbClient');

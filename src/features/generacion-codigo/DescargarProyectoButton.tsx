@@ -9,7 +9,7 @@
 import { useCallback, useState } from "react";
 
 import Button from "@/components/Button";
-import { httpClient, generacionApi } from "@/api";
+import { httpClient } from "@/api";
 import { toast } from "@/store";
 
 // ======================================================================
