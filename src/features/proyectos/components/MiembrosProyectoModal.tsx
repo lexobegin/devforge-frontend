@@ -7,13 +7,14 @@
  * - Permite agregar un nuevo miembro por email.
  */
 
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useState } from "react";
 
-import Avatar from '@/components/Avatar';
-import Button from '@/components/Button';
-import Modal from '@/components/Modal';
-import { useAuthStore, useProyectoStore, toast } from '@/store';
-import type { MiembroProyecto, RolEnProyecto } from '@/types';
+import Avatar from "@/components/Avatar";
+import Button from "@/components/Button";
+import Modal from "@/components/Modal";
+import { useAuthStore, useProyectoStore, toast } from "@/store";
+import { usuariosApi } from "@/api/usuariosApi";
+import type { MiembroProyecto, RolEnProyecto, Usuario } from "@/types";
 
 // ======================================================================
 // Tipos
@@ -24,12 +25,12 @@ interface MiembrosProyectoModalProps {
   proyectoId: number;
 }
 
-const ROLES: RolEnProyecto[] = ['PROPIETARIO', 'EDITOR', 'LECTOR'];
+const ROLES: RolEnProyecto[] = ["PROPIETARIO", "EDITOR", "LECTOR"];
 
 const ROL_LABEL: Record<RolEnProyecto, string> = {
-  PROPIETARIO: 'Propietario',
-  EDITOR: 'Editor',
-  LECTOR: 'Lector',
+  PROPIETARIO: "Propietario",
+  EDITOR: "Editor",
+  LECTOR: "Lector",
 };
 
 // ======================================================================
@@ -48,8 +49,8 @@ export function MiembrosProyectoModal({
 
   const usuarioActual = useAuthStore((s) => s.usuario);
 
-  const [idUsuarioNuevo, setIdUsuarioNuevo] = useState('');
-  const [rolNuevo, setRolNuevo] = useState<RolEnProyecto>('EDITOR');
+  const [idUsuarioNuevo, setIdUsuarioNuevo] = useState("");
+  const [rolNuevo, setRolNuevo] = useState<RolEnProyecto>("EDITOR");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,7 +58,11 @@ export function MiembrosProyectoModal({
 
   // Rol del usuario actual en este proyecto
   const miMiembro = miembros.find((m) => m.id_usuario === usuarioActual?.id);
-  const puedoGestionar = miMiembro?.rol_en_proyecto === 'PROPIETARIO';
+  const puedoGestionar = miMiembro?.rol_en_proyecto === "PROPIETARIO";
+
+  const [usuariosDisponibles, setUsuariosDisponibles] = useState<Usuario[]>([]);
+  const [cargandoUsuarios, setCargandoUsuarios] = useState(false);
+  const [puedeListarUsuarios, setPuedeListarUsuarios] = useState(true);
 
   // Cargar miembros al abrir
   /*useEffect(() => {
@@ -71,6 +76,30 @@ export function MiembrosProyectoModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, proyectoId]);
 
+  useEffect(() => {
+    if (!open) return;
+
+    async function cargarUsuarios() {
+      setCargandoUsuarios(true);
+      try {
+        const { items } = await usuariosApi.listar({
+          limit: 200,
+          solo_activos: true,
+        });
+        setUsuariosDisponibles(items);
+        setPuedeListarUsuarios(true);
+      } catch (err) {
+        // Si no es ADMIN, el backend devuelve 403. Caemos al input de ID.
+        setPuedeListarUsuarios(false);
+        setUsuariosDisponibles([]);
+      } finally {
+        setCargandoUsuarios(false);
+      }
+    }
+
+    void cargarUsuarios();
+  }, [open]);
+
   // ------------------------------------------------------------------
   // Agregar miembro
   // ------------------------------------------------------------------
@@ -80,7 +109,7 @@ export function MiembrosProyectoModal({
 
     const id = parseInt(idUsuarioNuevo, 10);
     if (!id || id <= 0) {
-      setError('Ingresá un ID de usuario válido');
+      setError("Seleccioná o ingresá un ID de usuario válido");
       return;
     }
 
@@ -91,12 +120,12 @@ export function MiembrosProyectoModal({
         id_usuario: id,
         rol_en_proyecto: rolNuevo,
       });
-      toast.success('Miembro agregado');
-      setIdUsuarioNuevo('');
-      setRolNuevo('EDITOR');
+      toast.success("Miembro agregado");
+      setIdUsuarioNuevo("");
+      setRolNuevo("EDITOR");
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : 'No se pudo agregar el miembro'
+        err instanceof Error ? err.message : "No se pudo agregar el miembro",
       );
     } finally {
       setIsLoading(false);
@@ -106,16 +135,13 @@ export function MiembrosProyectoModal({
   // ------------------------------------------------------------------
   // Cambiar rol
   // ------------------------------------------------------------------
-  async function handleCambiarRol(
-    miembroId: number,
-    nuevoRol: RolEnProyecto
-  ) {
+  async function handleCambiarRol(miembroId: number, nuevoRol: RolEnProyecto) {
     try {
       await cambiarRolMiembro(proyectoId, miembroId, nuevoRol);
-      toast.success('Rol actualizado');
+      toast.success("Rol actualizado");
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : 'No se pudo cambiar el rol'
+        err instanceof Error ? err.message : "No se pudo cambiar el rol",
       );
     }
   }
@@ -126,17 +152,17 @@ export function MiembrosProyectoModal({
   async function handleQuitar(miembro: MiembroProyecto) {
     const esYoMismo = miembro.id_usuario === usuarioActual?.id;
     const mensaje = esYoMismo
-      ? '¿Seguro que querés salir del proyecto?'
+      ? "¿Seguro que querés salir del proyecto?"
       : `¿Quitar a este miembro del proyecto?`;
 
     if (!window.confirm(mensaje)) return;
 
     try {
       await quitarMiembro(proyectoId, miembro.id);
-      toast.success(esYoMismo ? 'Saliste del proyecto' : 'Miembro quitado');
+      toast.success(esYoMismo ? "Saliste del proyecto" : "Miembro quitado");
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : 'No se pudo quitar al miembro'
+        err instanceof Error ? err.message : "No se pudo quitar al miembro",
       );
     }
   }
@@ -160,8 +186,9 @@ export function MiembrosProyectoModal({
 
         {miembros.map((m) => {
           const esYo = m.id_usuario === usuarioActual?.id;
-          const esPropietario = m.rol_en_proyecto === 'PROPIETARIO';
-          const nombre = m.usuario?.nombre_completo ?? `Usuario #${m.id_usuario}`;
+          const esPropietario = m.rol_en_proyecto === "PROPIETARIO";
+          const nombre =
+            m.usuario?.nombre_completo ?? `Usuario #${m.id_usuario}`;
 
           return (
             <div
@@ -172,7 +199,8 @@ export function MiembrosProyectoModal({
 
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-surface-100">
-                  {nombre} {esYo && <span className="text-surface-500">(vos)</span>}
+                  {nombre}{" "}
+                  {esYo && <span className="text-surface-500">(vos)</span>}
                 </p>
                 {m.usuario?.email && (
                   <p className="truncate text-xs text-surface-500">
@@ -190,7 +218,7 @@ export function MiembrosProyectoModal({
                   }
                   className="input-base h-8 w-32 py-0 text-xs"
                 >
-                  {ROLES.filter((r) => r !== 'PROPIETARIO').map((r) => (
+                  {ROLES.filter((r) => r !== "PROPIETARIO").map((r) => (
                     <option key={r} value={r}>
                       {ROL_LABEL[r]}
                     </option>
@@ -199,11 +227,11 @@ export function MiembrosProyectoModal({
               ) : (
                 <span
                   className={[
-                    'rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider',
+                    "rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
                     esPropietario
-                      ? 'bg-brand-600/20 text-brand-300'
-                      : 'bg-surface-700 text-surface-300',
-                  ].join(' ')}
+                      ? "bg-brand-600/20 text-brand-300"
+                      : "bg-surface-700 text-surface-300",
+                  ].join(" ")}
                 >
                   {ROL_LABEL[m.rol_en_proyecto]}
                 </span>
@@ -216,7 +244,7 @@ export function MiembrosProyectoModal({
                   onClick={() => void handleQuitar(m)}
                   className="flex-shrink-0 rounded-md p-1.5 text-surface-500 hover:bg-danger/10 hover:text-danger"
                   aria-label="Quitar miembro"
-                  title={esYo ? 'Salir del proyecto' : 'Quitar miembro'}
+                  title={esYo ? "Salir del proyecto" : "Quitar miembro"}
                 >
                   <svg
                     className="h-4 w-4"
@@ -254,19 +282,49 @@ export function MiembrosProyectoModal({
             </div>
           )}
 
-          <form onSubmit={handleAgregar} className="flex flex-col gap-2 sm:flex-row">
-            <input
-              type="number"
-              min={1}
-              value={idUsuarioNuevo}
-              onChange={(e) => {
-                setIdUsuarioNuevo(e.target.value);
-                if (error) setError(null);
-              }}
-              placeholder="ID del usuario"
-              className="input-base flex-1"
-              disabled={isLoading}
-            />
+          <form
+            onSubmit={handleAgregar}
+            className="flex flex-col gap-2 sm:flex-row"
+          >
+            {puedeListarUsuarios ? (
+              <>
+                <select
+                  value={idUsuarioNuevo}
+                  onChange={(e) => {
+                    setIdUsuarioNuevo(e.target.value);
+                    if (error) setError(null);
+                  }}
+                  className="input-base flex-1"
+                  disabled={isLoading || cargandoUsuarios}
+                >
+                  <option value="">
+                    {cargandoUsuarios
+                      ? "Cargando usuarios…"
+                      : "Seleccioná un usuario…"}
+                  </option>
+                  {usuariosDisponibles
+                    .filter((u) => !miembros.some((m) => m.id_usuario === u.id))
+                    .map((u) => (
+                      <option key={u.id} value={u.id.toString()}>
+                        {u.nombre_completo} ({u.email})
+                      </option>
+                    ))}
+                </select>
+              </>
+            ) : (
+              <input
+                type="number"
+                min={1}
+                value={idUsuarioNuevo}
+                onChange={(e) => {
+                  setIdUsuarioNuevo(e.target.value);
+                  if (error) setError(null);
+                }}
+                placeholder="ID del usuario (no tenés permisos para listarlos)"
+                className="input-base flex-1"
+                disabled={isLoading}
+              />
+            )}
 
             <select
               value={rolNuevo}
@@ -274,14 +332,19 @@ export function MiembrosProyectoModal({
               className="input-base sm:w-32"
               disabled={isLoading}
             >
-              {ROLES.filter((r) => r !== 'PROPIETARIO').map((r) => (
+              {ROLES.filter((r) => r !== "PROPIETARIO").map((r) => (
                 <option key={r} value={r}>
                   {ROL_LABEL[r]}
                 </option>
               ))}
             </select>
 
-            <Button type="submit" variant="primary" loading={isLoading}>
+            <Button
+              type="submit"
+              variant="primary"
+              loading={isLoading}
+              disabled={!idUsuarioNuevo}
+            >
               Agregar
             </Button>
           </form>

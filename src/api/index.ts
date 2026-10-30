@@ -28,6 +28,8 @@ export { aiVisionApi } from './aiVisionApi';
 export { sincronizacionApi } from './sincronizacionApi';
 export { notificacionesApi } from './notificacionesApi';
 
+export { usuariosApi } from './usuariosApi';
+
 // Re-exportar tipos locales que pueden ser útiles desde fuera
 export type {
   TipoCambio,
