@@ -6,11 +6,24 @@
  * - Nodos personalizados: ClassNode
  * - Aristas personalizadas: RelationshipEdge
  * - Modos: select / add-class / add-relation / add-interface
- * - Drag & drop de nodos (actualiza pos_x/pos_y al soltar)
+ * - Drag & drop de nodos (persiste pos_x/pos_y al soltar, cuantizados a
+ *   2 decimales igual que PosicionLienzo del backend)
  * - Cursor y selección en vivo (vía colaboracionStore)
+ *
+ * CONTRATO CICLO 2: los ids de clase/relación son uuid str (Id = string)
+ * de los elementos EMBEBIDOS del Diagrama. El prefijo `clase-`/`rel-` de
+ * los ids de nodo/edge lo agrega ESTE archivo y se quita aquí mismo —
+ * un hex/uuid no es un número, así que nada de conversiones a int.
+ *
+ * La fuente de verdad es el diagramaStore: los nodos/edges se DERIVAN del
+ * store en cada render y los handlers de React Flow solo traducen
+ * eventos → acciones del store (por eso no se necesita aplicar en local
+ * los cambios que React Flow reporta: ya quedan reflejados vía
+ * moverClase/setSeleccion).
  */
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo } from 'react';
+import type { MouseEvent as ReactMouseEvent } from 'react';
 import {
   Background,
   BackgroundVariant,
@@ -18,28 +31,27 @@ import {
   MiniMap,
   ReactFlow,
   ReactFlowProvider,
-  applyNodeChanges,
-  applyEdgeChanges,
-  type Connection,
-  type EdgeChange,
-  type NodeChange,
-  type Node,
-  type Edge,
+  ViewportPortal,
   useReactFlow,
-} from "@xyflow/react";
+  type Connection,
+  type Edge,
+  type EdgeChange,
+  type Node,
+  type NodeChange,
+} from '@xyflow/react';
 
-import "@xyflow/react/dist/style.css";
+import '@xyflow/react/dist/style.css';
 
 import {
   useDiagramaStore,
   useColaboracionStore,
   useUIStore,
   toast,
-} from "@/store";
-import type { ClaseUML } from "@/types";
-import CanvasToolbar from "./CanvasToolbar";
-import ClassNode from "./ClassNode";
-import RelationshipEdge from "./RelationshipEdge";
+} from '@/store';
+import type { ClaseUML, Id } from '@/types';
+import CanvasToolbar from './CanvasToolbar';
+import ClassNode from './ClassNode';
+import RelationshipEdge from './RelationshipEdge';
 
 // ======================================================================
 // Registro de tipos (fuera del componente para evitar re-renders)
@@ -52,11 +64,14 @@ const edgeTypes = {
   relationshipEdge: RelationshipEdge,
 };
 
+/** Prefijos de los ids de nodo/edge de React Flow (los pone este archivo). */
+const PREFIJO_CLASE = 'clase-';
+const PREFIJO_REL = 'rel-';
+
 // ======================================================================
 // Componente interno (ya dentro del Provider)
 // ======================================================================
 function DiagramCanvasInner() {
-  const wrapperRef = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition } = useReactFlow();
 
   // Store del diagrama
@@ -64,7 +79,7 @@ function DiagramCanvasInner() {
   const relaciones = useDiagramaStore((s) => s.relaciones);
   const seleccion = useDiagramaStore((s) => s.seleccion);
   const modoEditor = useDiagramaStore((s) => s.modoEditor);
-  const seleccionar = useDiagramaStore((s) => s.seleccionar);
+  const setSeleccion = useDiagramaStore((s) => s.setSeleccion);
   const setModoEditor = useDiagramaStore((s) => s.setModoEditor);
   const moverClase = useDiagramaStore((s) => s.moverClase);
   const actualizarClase = useDiagramaStore((s) => s.actualizarClase);
@@ -89,11 +104,11 @@ function DiagramCanvasInner() {
       clases.map((c) => {
         // ¿Algún colaborador tiene esta clase seleccionada?
         const colab = colaboradores.find(
-          (co) => co.seleccion?.tipo === "clase" && co.seleccion.id === c.id,
+          (co) => co.seleccion?.tipo === 'clase' && co.seleccion.id === c.id
         );
         return {
-          id: `clase-${c.id}`,
-          type: "classNode",
+          id: `${PREFIJO_CLASE}${c.id}`,
+          type: 'classNode',
           position: { x: Number(c.pos_x), y: Number(c.pos_y) },
           data: {
             clase: c,
@@ -101,19 +116,19 @@ function DiagramCanvasInner() {
               ? { color: colab.color, nombre: colab.nombre }
               : null,
           },
-          selected: seleccion?.tipo === "clase" && seleccion.id === c.id,
+          selected: seleccion?.tipo === 'clase' && seleccion.id === c.id,
         };
       }),
-    [clases, seleccion, colaboradores],
+    [clases, seleccion, colaboradores]
   );
 
   const edges: Edge[] = useMemo(
     () =>
       relaciones.map((r) => ({
-        id: `rel-${r.id}`,
-        source: `clase-${r.id_clase_origen}`,
-        target: `clase-${r.id_clase_destino}`,
-        type: "relationshipEdge",
+        id: `${PREFIJO_REL}${r.id}`,
+        source: `${PREFIJO_CLASE}${r.id_clase_origen}`,
+        target: `${PREFIJO_CLASE}${r.id_clase_destino}`,
+        type: 'relationshipEdge',
         data: {
           id: r.id,
           tipo: r.tipo_relacion,
@@ -121,9 +136,9 @@ function DiagramCanvasInner() {
           multiplicidad_destino: r.multiplicidad_destino,
           nombre_asociacion: r.nombre_asociacion,
         },
-        selected: seleccion?.tipo === "relacion" && seleccion.id === r.id,
+        selected: seleccion?.tipo === 'relacion' && seleccion.id === r.id,
       })),
-    [relaciones, seleccion],
+    [relaciones, seleccion]
   );
 
   // ------------------------------------------------------------------
@@ -131,58 +146,60 @@ function DiagramCanvasInner() {
   // ------------------------------------------------------------------
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
-      // Solo permitimos mover y seleccionar desde React Flow;
-      // la fuente de verdad es el store.
       for (const change of changes) {
-        if (change.type === "position" && change.position && change.id) {
-          const claseId = parseInt(change.id.replace("clase-", ""), 10);
+        if (change.type === 'position' && change.position && change.id) {
+          const claseId = change.id.replace(PREFIJO_CLASE, '');
           moverClase(claseId, change.position.x, change.position.y);
-        } else if (change.type === "select" && change.id) {
+        } else if (change.type === 'select' && change.id) {
+          const claseId = change.id.replace(PREFIJO_CLASE, '');
           if (change.selected) {
-            const claseId = parseInt(change.id.replace("clase-", ""), 10);
-            seleccionar({ tipo: "clase", id: claseId });
+            setSeleccion({ tipo: 'clase', id: claseId });
+          } else if (
+            seleccion?.tipo === 'clase' &&
+            seleccion.id === claseId
+          ) {
+            // Deselección: limpiar el store si apuntaba a este nodo.
+            setSeleccion(null);
           }
         }
       }
-      // Aplicamos los cambios visuales para que React Flow no se queje
-      void applyNodeChanges(changes, nodes);
     },
-    //[moverClase, seleccionar, nodes]
-    [moverClase, seleccionar],
+    [moverClase, setSeleccion, seleccion]
   );
 
   const onEdgesChange = useCallback(
     (changes: EdgeChange[]) => {
       for (const change of changes) {
-        if (change.type === "select" && change.id && change.selected) {
-          const relId = parseInt(change.id.replace("rel-", ""), 10);
-          seleccionar({ tipo: "relacion", id: relId });
+        if (change.type === 'select' && change.id) {
+          const relacionId = change.id.replace(PREFIJO_REL, '');
+          if (change.selected) {
+            setSeleccion({ tipo: 'relacion', id: relacionId });
+          } else if (
+            seleccion?.tipo === 'relacion' &&
+            seleccion.id === relacionId
+          ) {
+            setSeleccion(null);
+          }
         }
       }
-      void applyEdgeChanges(changes, edges);
     },
-    //[seleccionar, edges]
-    [seleccionar],
+    [setSeleccion, seleccion]
   );
 
   // Al soltar un nodo tras un drag → persistir en backend
   const onNodeDragStop = useCallback(
     (_event: globalThis.MouseEvent | TouchEvent, node: Node) => {
-      const claseId = parseInt(node.id.replace("clase-", ""), 10);
+      const claseId = node.id.replace(PREFIJO_CLASE, '');
       const clase = clases.find((c) => c.id === claseId);
       if (!clase) return;
-      //// Persistir la posición final (con debounce en otro sitio si hiciera falta)
-      //void actualizarClase(claseId, {
-      //  pos_x: node.position.x,
-      //  pos_y: node.position.y,
-      //});
-      // Redondear a 2 decimales para respetar Numeric(10, 2)
+      // Cuantizar a 2 decimales igual que PosicionLienzo del backend
+      // (evita el ruido flotante tipo 12.300000000000001)
       const pos_x = Math.round(node.position.x * 100) / 100;
       const pos_y = Math.round(node.position.y * 100) / 100;
-
+      moverClase(claseId, pos_x, pos_y);
       void actualizarClase(claseId, { pos_x, pos_y });
     },
-    [clases, actualizarClase],
+    [clases, moverClase, actualizarClase]
   );
 
   // Conectar dos nodos → crear relación
@@ -190,88 +207,78 @@ function DiagramCanvasInner() {
     async (connection: Connection) => {
       if (!connection.source || !connection.target) return;
       if (connection.source === connection.target) {
-        toast.warning("No se puede relacionar una clase consigo misma");
+        toast.warning('No se puede relacionar una clase consigo misma');
         return;
       }
-      const origenId = parseInt(connection.source.replace("clase-", ""), 10);
-      const destinoId = parseInt(connection.target.replace("clase-", ""), 10);
+      const origenId: Id = connection.source.replace(PREFIJO_CLASE, '');
+      const destinoId: Id = connection.target.replace(PREFIJO_CLASE, '');
       try {
         const relacionCreada = await crearRelacion({
           id_clase_origen: origenId,
           id_clase_destino: destinoId,
-          tipo_relacion: "ASOCIACION",
+          tipo_relacion: 'ASOCIACION',
         });
-        emisores.evento?.("relation_created", {
+        emisores.evento?.('relation_created', {
           id: relacionCreada.id,
           id_clase_origen: relacionCreada.id_clase_origen,
           id_clase_destino: relacionCreada.id_clase_destino,
           tipo_relacion: relacionCreada.tipo_relacion,
         });
-        toast.success("Relación creada");
+        toast.success('Relación creada');
       } catch (err) {
         toast.error(
-          err instanceof Error ? err.message : "No se pudo crear la relación",
+          err instanceof Error ? err.message : 'No se pudo crear la relación'
         );
       }
     },
-    [crearRelacion, emisores],
+    [crearRelacion, emisores]
   );
 
   // Click en el canvas vacío → crear clase (si modo add-class)
   const onPaneClick = useCallback(
-    async (event: React.MouseEvent) => {
-      if (modoEditor !== "add-class") return;
+    async (event: ReactMouseEvent) => {
+      if (modoEditor !== 'add-class') return;
 
       const position = screenToFlowPosition({
         x: event.clientX,
         y: event.clientY,
       });
 
-      const nombre = window.prompt("Nombre de la nueva clase:", "NuevaClase");
+      const nombre = window.prompt('Nombre de la nueva clase:', 'NuevaClase');
       if (!nombre || !nombre.trim()) return;
 
       try {
-        /*await crearClase({
-          nombre: nombre.trim(),
-          //pos_x: position.x,
-          //pos_y: position.y,
-          pos_x: Math.round(position.x * 100) / 100,
-          pos_y: Math.round(position.y * 100) / 100,
-        });*/
-
         const claseCreada = await crearClase({
           nombre: nombre.trim(),
           pos_x: Math.round(position.x * 100) / 100,
           pos_y: Math.round(position.y * 100) / 100,
         });
-        emisores.evento?.("class_created", {
+        emisores.evento?.('class_created', {
           id: claseCreada.id,
           nombre: claseCreada.nombre,
           pos_x: claseCreada.pos_x,
           pos_y: claseCreada.pos_y,
-          // ...
         });
 
         toast.success(`Clase "${nombre.trim()}" creada`);
-        setModoEditor("select");
+        setModoEditor('select');
       } catch (err) {
         toast.error(
-          err instanceof Error ? err.message : "No se pudo crear la clase",
+          err instanceof Error ? err.message : 'No se pudo crear la clase'
         );
       }
     },
-    [modoEditor, screenToFlowPosition, crearClase, setModoEditor, emisores],
+    [modoEditor, screenToFlowPosition, crearClase, setModoEditor, emisores]
   );
 
   // ------------------------------------------------------------------
-  // Cursores remotos (overlay)
+  // Cursores remotos (overlay dentro del viewport: se mueve con pan/zoom)
   // ------------------------------------------------------------------
   const cursoresRemotos = colaboradores.filter((c) => c.cursor);
 
-
-  // 1) Emitir cursor al mover el mouse
+  // Emitir cursor al mover el mouse (el hook WS se encarga del throttle)
   const handleMouseMove = useCallback(
-    (event: React.MouseEvent) => {
+    (event: ReactMouseEvent) => {
       if (!emisores.cursor) return;
       const flowPos = screenToFlowPosition({
         x: event.clientX,
@@ -279,29 +286,18 @@ function DiagramCanvasInner() {
       });
       emisores.cursor(flowPos.x, flowPos.y);
     },
-    [emisores, screenToFlowPosition],
+    [emisores, screenToFlowPosition]
   );
 
-  // 3) Emitir selección cuando cambia
+  // Emitir selección cuando cambia
   useEffect(() => {
     if (!seleccion || !emisores.seleccion) return;
     emisores.seleccion(seleccion.tipo, seleccion.id);
   }, [seleccion, emisores]);
 
-  // 4) Emitir evento al crear clase
-  // En onPaneClick, después de crearClase():
-  //emisores.evento?.("class_created", { ...claseCreada });
-
-  // 5) Emitir evento al crear relación
-  //emisores.evento?.("relation_created", { ...relacionCreada });
-
-  // 6) Emitir evento al eliminar clase/relación
-  // (cuando estén los handlers de eliminar en el canvas)
-
   return (
     <div
       className="relative h-full w-full"
-      ref={wrapperRef}
       onMouseMove={handleMouseMove}
     >
       <ReactFlow
@@ -341,35 +337,38 @@ function DiagramCanvasInner() {
           position="bottom-left"
           nodeColor={(n) => {
             const c = (n.data as { clase?: ClaseUML })?.clase;
-            return c?.es_abstracta ? "#4f46e5" : "#475569";
+            return c?.es_abstracta ? '#4f46e5' : '#475569';
           }}
           className="!bg-surface-900 !border-surface-800"
         />
+
+        {/* Cursores remotos: ViewportPortal dibuja en coordenadas de
+            flujo, así que el punto sigue al lienzo con pan y zoom. */}
+        <ViewportPortal>
+          {cursoresRemotos.map((c) => (
+            <RemoteCursor
+              key={c.id}
+              x={c.cursor!.x}
+              y={c.cursor!.y}
+              color={c.color}
+              nombre={c.nombre}
+            />
+          ))}
+        </ViewportPortal>
       </ReactFlow>
 
       {/* Toolbar flotante */}
       <CanvasToolbar />
 
-      {/* Cursores remotos */}
-      {cursoresRemotos.map((c) => (
-        <RemoteCursor
-          key={c.id}
-          x={c.cursor!.x}
-          y={c.cursor!.y}
-          color={c.color}
-          nombre={c.nombre}
-        />
-      ))}
-
       {/* Indicador de modo */}
-      {modoEditor !== "select" && (
+      {modoEditor !== 'select' && (
         <div className="pointer-events-none absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-full bg-brand-600/90 px-3 py-1 text-xs font-medium text-white shadow-lg">
-          {modoEditor === "add-class" &&
-            "Hacé click en el lienzo para crear una clase"}
-          {modoEditor === "add-relation" &&
-            "Arrastrá desde un nodo a otro para crear una relación"}
-          {modoEditor === "add-interface" &&
-            "Hacé click en el lienzo para crear una interfaz"}
+          {modoEditor === 'add-class' &&
+            'Hacé click en el lienzo para crear una clase'}
+          {modoEditor === 'add-relation' &&
+            'Arrastrá desde un nodo a otro para crear una relación'}
+          {modoEditor === 'add-interface' &&
+            'Hacé click en el lienzo para crear una interfaz'}
         </div>
       )}
     </div>
@@ -377,7 +376,7 @@ function DiagramCanvasInner() {
 }
 
 // ======================================================================
-// Cursor remoto
+// Cursor remoto (dentro de ViewportPortal: x/y son coords de flujo)
 // ======================================================================
 interface RemoteCursorProps {
   x: number;
@@ -389,8 +388,8 @@ interface RemoteCursorProps {
 function RemoteCursor({ x, y, color, nombre }: RemoteCursorProps) {
   return (
     <div
-      className="pointer-events-none absolute z-20 transition-all duration-100"
-      style={{ left: x, top: y, transform: "translate(-2px, -2px)" }}
+      className="pointer-events-none absolute z-20"
+      style={{ left: x, top: y, transform: 'translate(-2px, -2px)' }}
     >
       <svg className="h-5 w-5 drop-shadow-md" viewBox="0 0 24 24" fill={color}>
         <path d="M5.5 3.21V20.8c0 .45.54.67.85.35l4.86-4.86a.5.5 0 01.35-.15h6.87c.45 0 .67-.54.35-.85L6.35 2.85a.5.5 0 00-.85.36z" />

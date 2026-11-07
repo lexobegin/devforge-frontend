@@ -14,6 +14,11 @@
  *   └───────────────────────────┘
  *
  * Se registra como tipo `classNode` en React Flow.
+ *
+ * CONTRATO CICLO 2: `clase` es la ClaseUML EMBEBIDA del Diagrama — su id
+ * (como los ids de atributos y operaciones) es un str uuid (Id = string),
+ * no un int serial. El nodo se posiciona con pos_x/pos_y del diagrama
+ * (lo mapea DiagramCanvas, F46).
  */
 
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';

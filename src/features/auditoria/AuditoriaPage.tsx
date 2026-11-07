@@ -2,42 +2,34 @@
 /**
  * Pantalla de Auditoría (CU3 — Consultar Bitácora del Sistema).
  *
- * Solo accesible para ADMIN. Permite:
+ * Solo accesible para ADMIN (RequireAdmin en el AppRouter + require_admin
+ * en todos los endpoints del backend). Permite:
  * - Listar la bitácora con filtros (usuario, tipo de evento, entidad, fechas).
  * - Paginación.
  * - Exportar el resultado filtrado a Excel o PDF.
  *
  * Todos los filtros se aplican en el backend.
+ *
+ * Contrato Ciclo 2 (auditoria_router.py + auditoriaApi):
+ * - Los ids (evento, usuario) son PydanticObjectId → STRING HEX, y
+ *   id_entidad_afectada es str|None — nada de números ni parseInt.
+ * - La consulta y las exportaciones van por auditoriaApi (el JWT viaja
+ *   en el header; las exportaciones se consumen como Blob y se descargan
+ *   con URL.createObjectURL).
+ * - TIPOS_EVENTO refleja los eventos que el backend realmente registra
+ *   (auditoria_service.py + generacion_router.py).
  */
 
 import { useCallback, useEffect, useState } from 'react';
 
 import Button from '@/components/Button';
 import { PageLoader } from '@/components/Loader';
-import { httpClient } from '@/api';
+import { auditoriaApi, type BitacoraQuery, type BitacoraSistema } from '@/api';
 import { toast } from '@/store';
-import type { ISODateString } from '@/types';
 
 // ======================================================================
-// Tipos
+// Filtros
 // ======================================================================
-interface BitacoraEvento {
-  id: number;
-  id_usuario: number | null;
-  tipo_evento: string;
-  descripcion: string;
-  entidad_afectada: string | null;
-  id_entidad_afectada: number | null;
-  created_at: ISODateString;
-}
-
-interface ListadoResponse {
-  items: BitacoraEvento[];
-  total: number;
-  skip: number;
-  limit: number;
-}
-
 interface Filtros {
   id_usuario: string;
   tipo_evento: string;
@@ -54,25 +46,48 @@ const FILTROS_INICIALES: Filtros = {
   hasta: '',
 };
 
+/** Eventos que el backend registra realmente (Ciclo 2). */
 const TIPOS_EVENTO = [
   'LOGIN',
   'USUARIO_REGISTRADO',
   'PROYECTO_CREADO',
-  'DIAGRAMA_EXPORTADO',
-  'DIAGRAMA_IMPORTADO',
+  'GENERACION_SOLICITADA',
   'GENERACION_COMPLETADA',
   'GENERACION_FALLIDA',
+  'DIAGRAMA_EXPORTADO',
+  'DIAGRAMA_IMPORTADO',
 ];
 
+/** Entidades que el backend usa en entidad_afectada. */
 const ENTIDADES = ['USUARIO', 'PROYECTO', 'DIAGRAMA', 'TRABAJO_GENERACION'];
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 50; // el backend admite limit hasta 1000
+
+// ======================================================================
+// Helpers de filtro
+// ======================================================================
+/** Filtros del form → BitacoraQuery (id_usuario queda string hex). */
+function aQuery(f: Filtros): BitacoraQuery {
+  const query: BitacoraQuery = {};
+  if (f.id_usuario.trim()) query.id_usuario = f.id_usuario.trim();
+  if (f.tipo_evento) query.tipo_evento = f.tipo_evento;
+  if (f.entidad_afectada) query.entidad_afectada = f.entidad_afectada;
+  if (f.desde) query.desde = normalizarFecha(f.desde);
+  if (f.hasta) query.hasta = normalizarFecha(f.hasta);
+  return query;
+}
+
+/** datetime-local manda "YYYY-MM-DDTHH:mm" → se completan los segundos
+ *  para que el backend (datetime ISO 8601) siempre lo acepte. */
+function normalizarFecha(valor: string): string {
+  return valor.length === 16 ? `${valor}:00` : valor;
+}
 
 // ======================================================================
 // Componente
 // ======================================================================
 export function AuditoriaPage() {
-  const [eventos, setEventos] = useState<BitacoraEvento[]>([]);
+  const [eventos, setEventos] = useState<BitacoraSistema[]>([]);
   const [total, setTotal] = useState(0);
   const [skip, setSkip] = useState(0);
   const [filtros, setFiltros] = useState<Filtros>(FILTROS_INICIALES);
@@ -89,24 +104,13 @@ export function AuditoriaPage() {
       setIsLoading(true);
       setError(null);
       try {
-        const params: Record<string, string | number> = {
+        const res = await auditoriaApi.listar({
+          ...aQuery(filtrosActivos),
           skip: nuevoSkip,
           limit: PAGE_SIZE,
-        };
-        if (filtrosActivos.id_usuario)
-          params.id_usuario = Number(filtrosActivos.id_usuario);
-        if (filtrosActivos.tipo_evento)
-          params.tipo_evento = filtrosActivos.tipo_evento;
-        if (filtrosActivos.entidad_afectada)
-          params.entidad_afectada = filtrosActivos.entidad_afectada;
-        if (filtrosActivos.desde) params.desde = filtrosActivos.desde;
-        if (filtrosActivos.hasta) params.hasta = filtrosActivos.hasta;
-
-        const res = await httpClient.get<ListadoResponse>('/auditoria', {
-          params,
         });
-        setEventos(res.data.items);
-        setTotal(res.data.total);
+        setEventos(res.items);
+        setTotal(res.total);
         setSkip(nuevoSkip);
       } catch (err) {
         setError(
@@ -139,32 +143,17 @@ export function AuditoriaPage() {
   };
 
   // ------------------------------------------------------------------
-  // Exportar
+  // Exportar (Blob → descarga; sin skip/limit: el backend no los pide)
   // ------------------------------------------------------------------
   const exportar = async (formato: 'excel' | 'pdf') => {
     setExportando(formato);
     try {
-      const params: Record<string, string | number> = {};
-      if (filtrosAplicados.id_usuario)
-        params.id_usuario = Number(filtrosAplicados.id_usuario);
-      if (filtrosAplicados.tipo_evento)
-        params.tipo_evento = filtrosAplicados.tipo_evento;
-      if (filtrosAplicados.entidad_afectada)
-        params.entidad_afectada = filtrosAplicados.entidad_afectada;
-      if (filtrosAplicados.desde) params.desde = filtrosAplicados.desde;
-      if (filtrosAplicados.hasta) params.hasta = filtrosAplicados.hasta;
+      const query = aQuery(filtrosAplicados);
+      const blob =
+        formato === 'excel'
+          ? await auditoriaApi.exportarExcel(query)
+          : await auditoriaApi.exportarPdf(query);
 
-      const response = await httpClient.get(
-        `/auditoria/exportar/${formato}`,
-        { params, responseType: 'blob' }
-      );
-
-      const blob = new Blob([response.data], {
-        type:
-          formato === 'excel'
-            ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-            : 'application/pdf',
-      });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -239,13 +228,12 @@ export function AuditoriaPage() {
           <div>
             <label className="label-base text-xs">ID Usuario</label>
             <input
-              type="number"
-              min={1}
+              type="text"
               value={filtros.id_usuario}
               onChange={(e) =>
                 setFiltros((f) => ({ ...f, id_usuario: e.target.value }))
               }
-              placeholder="Todos"
+              placeholder="Todos (id hex)"
               className="input-base text-sm"
             />
           </div>
@@ -378,7 +366,7 @@ export function AuditoriaPage() {
                       {formatFecha(e.created_at)}
                     </td>
                     <td className="px-3 py-2 text-xs text-surface-300">
-                      {e.id_usuario ? `#${e.id_usuario}` : '—'}
+                      {e.id_usuario ? `#${e.id_usuario}` : 'Sistema'}
                     </td>
                     <td className="px-3 py-2">
                       <span className="rounded bg-surface-800 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-surface-300">

@@ -6,7 +6,13 @@
  * Nota: solo funciona en navegadores basados en Chromium (Chrome, Edge).
  * Firefox y Safari no la soportan plenamente todavía.
  *
- * Cuando el texto se reconoce, se envía al mismo flujo de IA que el chat.
+ * Cuando el texto se reconoce, se envía al MISMO flujo de IA que el chat
+ * (enviarPrompt(texto, 'VOZ') → PromptIARequest.origen='VOZ').
+ *
+ * Tipos: SpeechRecognition NO está en lib.dom de TypeScript 5.6, y el
+ * paste referenciaba el tipo global de la lista de resultados (que en
+ * 5.6 tampoco existe) → acá se declaran shapes propios mínimos, sin
+ * depender de lib.dom ni de la versión de TypeScript.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -14,34 +20,45 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from '@/store';
 
 // ======================================================================
-// Tipos mínimos para SpeechRecognition (no está en lib.dom por defecto)
+// Tipos mínimos propios (Web Speech API, sin lib.dom)
 // ======================================================================
-interface SpeechRecognitionEvent extends Event {
-  results: SpeechRecognitionResultList;
-  resultIndex: number;
+interface AlternativaVoz {
+  transcript: string;
 }
 
-interface SpeechRecognitionErrorEvent extends Event {
-  error: string;
-  message: string;
+interface ResultadoVoz {
+  readonly length: number;
+  readonly isFinal: boolean;
+  [index: number]: AlternativaVoz;
 }
 
-interface SpeechRecognition extends EventTarget {
+interface EventoResultadoVoz extends Event {
+  readonly resultIndex: number;
+  readonly results: {
+    readonly length: number;
+    [index: number]: ResultadoVoz;
+  };
+}
+
+interface EventoErrorVoz extends Event {
+  readonly error: string;
+  readonly message: string;
+}
+
+interface ReconocedorVoz extends EventTarget {
   lang: string;
   continuous: boolean;
   interimResults: boolean;
   start(): void;
   stop(): void;
   abort(): void;
-  onresult: ((event: SpeechRecognitionEvent) => void) | null;
-  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
+  onresult: ((event: EventoResultadoVoz) => void) | null;
+  onerror: ((event: EventoErrorVoz) => void) | null;
   onend: (() => void) | null;
   onstart: (() => void) | null;
 }
 
-interface SpeechRecognitionConstructor {
-  new (): SpeechRecognition;
-}
+type ConstructorReconocedor = new () => ReconocedorVoz;
 
 // ======================================================================
 // Props
@@ -60,15 +77,23 @@ export function AIVoiceButton({
 }: AIVoiceButtonProps) {
   const [escuchando, setEscuchando] = useState(false);
   const [soportado, setSoportado] = useState(true);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const recognitionRef = useRef<ReconocedorVoz | null>(null);
+
+  // El callback viaja en un ref: así el reconocedor se crea UNA vez y no
+  // en cada render del padre (el paste lo recreaba en cada render porque
+  // AIPanel pasa un arrow inline como onResultado).
+  const onResultadoRef = useRef(onResultado);
+  useEffect(() => {
+    onResultadoRef.current = onResultado;
+  }, [onResultado]);
 
   // ------------------------------------------------------------------
-  // Detección de soporte + inicialización
+  // Detección de soporte + inicialización (una sola vez)
   // ------------------------------------------------------------------
   useEffect(() => {
     const win = window as unknown as {
-      SpeechRecognition?: SpeechRecognitionConstructor;
-      webkitSpeechRecognition?: SpeechRecognitionConstructor;
+      SpeechRecognition?: ConstructorReconocedor;
+      webkitSpeechRecognition?: ConstructorReconocedor;
     };
 
     const Ctor = win.SpeechRecognition ?? win.webkitSpeechRecognition;
@@ -96,9 +121,9 @@ export function AIVoiceButton({
     };
     recognition.onresult = (event) => {
       const ultimo = event.results[event.results.length - 1];
-      const texto = ultimo[0].transcript.trim();
+      const texto = ultimo?.[0]?.transcript.trim();
       if (texto) {
-        onResultado(texto);
+        onResultadoRef.current(texto);
       }
     };
 
@@ -111,7 +136,7 @@ export function AIVoiceButton({
       }
       recognitionRef.current = null;
     };
-  }, [onResultado]);
+  }, []);
 
   // ------------------------------------------------------------------
   // Toggle grabación

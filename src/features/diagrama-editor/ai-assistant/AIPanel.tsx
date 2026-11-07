@@ -1,17 +1,21 @@
 // src/features/diagrama-editor/ai-assistant/AIPanel.tsx
 /**
- * Panel contenedor de la IA asistente.
+ * Panel contenedor de la IA asistente (Agente Dev, módulo G).
  *
  * Tabs:
- * - Chat  → AIChatPanel (prompts por texto).
- * - Voz   → mismo chat, pero el input es por micrófono.
- * - Imagen → AIImageUpload (boceto → IA visión).
+ * - Chat  → AIChatPanel (prompts por TEXTO + botón de VOZ al pie).
+ * - Imagen → AIImageUpload (boceto → IA de visión, /ai-vision).
  *
- * El botón flotante del editor abre/cierra este panel.
+ * El botón flotante "IA" del header del editor (F44) abre/cierra este
+ * panel. Los ids son Id (ObjectId hex, string): DiagramEditorPage pasa
+ * `proyectoId={diagrama.id_proyecto}` y `diagramaId={diagrama.id}` — el
+ * paste traía `number | null` y habría roto el tsc (la página solo
+ * renderiza este panel con el diagrama ya cargado).
  */
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 
+import type { Id } from '@/types';
 import AIChatPanel from './AIChatPanel';
 import AIImageUpload from './AIImageUpload';
 import AIVoiceButton from './AIVoiceButton';
@@ -21,8 +25,10 @@ import { useAIPrompt } from './useAIPrompt';
 // Tipos
 // ======================================================================
 interface AIPanelProps {
-  proyectoId: number | null;
-  diagramaId: number | null;
+  /** Id del proyecto (ruta POST /ia/proyectos/{proyecto_id}/prompt). */
+  proyectoId: Id | null;
+  /** Id del diagrama activo (Agente Dev); null → chat general. */
+  diagramaId: Id | null;
   disabled?: boolean;
   onClose: () => void;
 }
@@ -39,8 +45,16 @@ export function AIPanel({
   onClose,
 }: AIPanelProps) {
   const [tab, setTab] = useState<Tab>('chat');
-  const { mensajes, enviando, enviarPrompt, aplicarAcciones, limpiarChat } =
-    useAIPrompt(proyectoId, diagramaId);
+  const {
+    mensajes,
+    enviando,
+    pendientes,
+    procesando,
+    enviarPrompt,
+    aplicarAcciones,
+    procesarPendientes,
+    limpiarChat,
+  } = useAIPrompt(proyectoId, diagramaId);
 
   return (
     <aside className="flex h-full w-96 flex-shrink-0 flex-col border-l border-surface-800 bg-surface-900">
@@ -145,9 +159,12 @@ export function AIPanel({
                 onAplicar={aplicarAcciones}
                 onLimpiar={limpiarChat}
                 disabled={disabled}
+                pendientes={pendientes}
+                procesandoPendientes={procesando}
+                onProcesarPendientes={() => void procesarPendientes()}
               />
             </div>
-            {/* Botón de voz sobre el input */}
+            {/* Botón de voz sobre el input (dictado → origen='VOZ') */}
             <div className="flex justify-end border-t border-surface-800 px-3 py-2">
               <AIVoiceButton
                 onResultado={(texto) => {
@@ -176,7 +193,7 @@ function TabButton({
 }: {
   active: boolean;
   onClick: () => void;
-  icon: React.ReactNode;
+  icon: ReactNode;
   label: string;
 }) {
   return (

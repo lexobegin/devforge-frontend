@@ -5,15 +5,28 @@
  * Vite expone al cliente SOLO las variables con prefijo VITE_.
  * Este módulo centraliza su lectura y validación para que ningún
  * componente las lea directamente de `import.meta.env`.
+ *
+ * MODO LOCAL (Camino A, acordado con el equipo): si el backend de
+ * producción no responde, la PWA puede re-apuntar a un backend local.
+ * Las bases locales vienen de VITE_LOCAL_API_BASE_URL /
+ * VITE_LOCAL_WS_BASE_URL (definidas en .env.example y .env.produccion)
+ * y las consumen `api/httpClient.ts` (REST) y `websocket/socketClient.ts`
+ * (WS) como fallback al fallar el backend principal.
  */
+
+import type { Id } from '@/types/common';
 
 type AppEnv = 'development' | 'production' | 'test';
 
 interface EnvConfig {
-  /** URL base de la API REST (con /api/v1 al final). */
+  /** URL base de la API REST principal (con /api/v1 al final). */
   apiBaseUrl: string;
-  /** URL base del WebSocket de colaboración. */
+  /** URL base del WebSocket de colaboración principal. */
   wsBaseUrl: string;
+  /** Bases del MODO LOCAL (Camino A): fallback cuando el backend
+   *  de producción no responde. */
+  localApiBaseUrl: string;
+  localWsBaseUrl: string;
   /** Entorno actual. */
   appEnv: AppEnv;
   /** Versión de la app (para mostrar en footer, etc.). */
@@ -73,11 +86,24 @@ const wsBaseUrl = readString(
   'ws://localhost:8000'
 ).replace(/\/+$/, '');
 
+// MODO LOCAL (Camino A): mismas bases que el backend en dev.
+const localApiBaseUrl = readString(
+  'VITE_LOCAL_API_BASE_URL',
+  'http://localhost:8000/api/v1'
+).replace(/\/+$/, '');
+
+const localWsBaseUrl = readString(
+  'VITE_LOCAL_WS_BASE_URL',
+  'ws://localhost:8000'
+).replace(/\/+$/, '');
+
 export const env: EnvConfig = {
   apiBaseUrl,
   wsBaseUrl,
+  localApiBaseUrl,
+  localWsBaseUrl,
   appEnv: readAppEnv(),
-  appVersion: readString('VITE_APP_VERSION', '0.1.0'),
+  appVersion: readString('VITE_APP_VERSION', '0.2.0'),
   apiTimeoutMs: readNumber('VITE_API_TIMEOUT_MS', 30_000),
   features: {
     pwa: readBool('VITE_ENABLE_PWA', true),
@@ -99,7 +125,17 @@ export const env: EnvConfig = {
 export const isDev = env.appEnv === 'development';
 export const isProd = env.appEnv === 'production';
 
-/** Construye la URL completa del WebSocket para un diagrama. */
-export function buildDiagramWsUrl(diagramaId: number, token: string): string {
-  return `${env.wsBaseUrl}/ws/diagramas/${diagramaId}?token=${encodeURIComponent(token)}`;
+/**
+ * Construye la URL completa del WebSocket de colaboración de un diagrama.
+ * Endpoint real del backend (app/websocket/collaboration_ws.py):
+ *   /ws/diagramas/{diagrama_id}?token=<jwt>
+ * Con usarLocal=true usa la base del MODO LOCAL (Camino A).
+ */
+export function buildDiagramWsUrl(
+  diagramaId: Id,
+  token: string,
+  usarLocal = false
+): string {
+  const base = usarLocal ? env.localWsBaseUrl : env.wsBaseUrl;
+  return `${base}/ws/diagramas/${diagramaId}?token=${encodeURIComponent(token)}`;
 }

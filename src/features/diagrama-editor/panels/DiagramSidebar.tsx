@@ -1,11 +1,22 @@
 // src/features/diagrama-editor/panels/DiagramSidebar.tsx
 /**
- * Sidebar derecho del editor.
+ * Sidebar derecho del editor (pestaña "Propiedades" del RightPanel).
  *
- * Orquesta qué panel mostrar según la selección actual:
- * - Clase seleccionada → ClassPropertiesPanel
- * - Relación seleccionada → RelationshipPanel
- * - Nada seleccionado → panel de "nada seleccionado" + participantes
+ * Orquesta qué panel mostrar según la selección actual del diagramaStore:
+ * - Clase seleccionada → ClassPropertiesPanel (F47).
+ * - Relación seleccionada → RelationshipPanel (F48).
+ * - Nada seleccionado → panel vacío + participantes arriba.
+ *
+ * ⚠️ DiagramEditorPage (F44) ya renderiza este componente DENTRO de un
+ * contenedor `w-80 border-l border-surface-800 bg-surface-900/40` (el
+ * RightPanel con tabs propiedades/versiones/comentarios), así que acá NO
+ * se repiten ni el ancho ni el borde ni el fondo: el aside ocupa el 100%
+ * del contenedor. El paste traía `w-80 border-l` duplicado dentro del
+ * mismo `w-80 border-l` (borde doble y desborde de 1px+ por el box
+ * model).
+ *
+ * Los ids de la selección son uuid str (Id del Ciclo 2): el find es por
+ * igualdad de strings, sin parseInt.
  */
 
 import { useDiagramaStore } from '@/store';
@@ -18,7 +29,9 @@ export function DiagramSidebar() {
   const clases = useDiagramaStore((s) => s.clases);
   const relaciones = useDiagramaStore((s) => s.relaciones);
 
-  // Resolver la entidad seleccionada
+  // Resolver la entidad seleccionada (ElementoSeleccionado del store).
+  // Nota: 'interfaz' no tiene panel dedicado todavía (no hay
+  // InterfaceNode en el lienzo, F45) → cae al panel vacío.
   const claseSeleccionada =
     seleccion?.tipo === 'clase'
       ? clases.find((c) => c.id === seleccion.id)
@@ -30,7 +43,7 @@ export function DiagramSidebar() {
       : undefined;
 
   return (
-    <aside className="flex h-full w-80 flex-shrink-0 flex-col border-l border-surface-800 bg-surface-900/40">
+    <aside className="flex h-full min-h-0 w-full flex-col">
       {/* Participantes siempre visibles arriba */}
       <ParticipantsPanel />
 

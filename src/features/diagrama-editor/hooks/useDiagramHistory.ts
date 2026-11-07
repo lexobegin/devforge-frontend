@@ -1,24 +1,37 @@
 // src/features/diagrama-editor/hooks/useDiagramHistory.ts
 /**
- * Hook de undo/redo local del editor.
+ * Hook de undo/redo fino del editor (F51).
  *
- * Guarda snapshots ligeros del estado del diagrama en memoria (no en el
- * backend). Sirve para deshacer acciones del usuario durante la sesión
- * antes de confirmarlas al servidor.
+ * Guarda snapshots LIGEROS de las colecciones del diagramaStore
+ * (clases/interfaces/relaciones — solo referencias, el store es la
+ * fuente de verdad) en dos pilas en memoria. Sirve para deshacer
+ * acciones del usuario durante la sesión.
  *
- * Importante: el undo/redo actual no revierte cambios ya persistidos en
- * el backend, solo el estado local. En la Fase 10 (WebSocket) podemos
- * conectarlo a eventos remotos.
+ * Límites (documentados, mismos del Ciclo 1 + decisiones Ciclo 2):
+ * - El undo/redo solo revierte el estado LOCAL: si el cambio ya se
+ *   persistió por REST, deshacer NO llama al backend; el estado
+ *   revertido queda marcado `haycambiosSinGuardar` para que el
+ *   siguiente guardar/sync lo mande.
+ * - Los cambios REMOTOS (WebSocket) no entran a estas pilas: las
+ *   aplica*Remota del store no pasan por el hook.
+ *
+ * Correcciones sobre el paste:
+ * - canUndo/canRedo devolvían flags CONGELADOS (las pilas viven en refs
+ *   que no re-renderizan): ahora un contador de versión fuerza el
+ *   recálculo en cada push/undo/redo.
+ * - undo/redo ahora marcan `haycambiosSinGuardar: true` (el estado local
+ *   deja de coincidir con el servidor hasta el próximo guardado).
  */
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useDiagramaStore } from '@/store';
+import type { ClaseUML, InterfazUML, RelacionUML } from '@/types';
 
 interface Snapshot {
-  clases: ReturnType<typeof useDiagramaStore.getState>['clases'];
-  relaciones: ReturnType<typeof useDiagramaStore.getState>['relaciones'];
-  interfaces: ReturnType<typeof useDiagramaStore.getState>['interfaces'];
+  clases: ClaseUML[];
+  interfaces: InterfazUML[];
+  relaciones: RelacionUML[];
 }
 
 interface UseDiagramHistoryReturn {
@@ -32,14 +45,18 @@ interface UseDiagramHistoryReturn {
 export function useDiagramHistory(maxDepth = 30): UseDiagramHistoryReturn {
   const undoStack = useRef<Snapshot[]>([]);
   const redoStack = useRef<Snapshot[]>([]);
+  // Las refs no re-renderizan: el contador fuerza el recálculo de los
+  // flags canUndo/canRedo en cada mutación de las pilas.
+  const [, setVersion] = useState(0);
+  const bump = useCallback(() => setVersion((v) => v + 1), []);
 
   // Snapshot actual del store
   const tomarSnapshot = useCallback((): Snapshot => {
     const s = useDiagramaStore.getState();
     return {
       clases: s.clases,
-      relaciones: s.relaciones,
       interfaces: s.interfaces,
+      relaciones: s.relaciones,
     };
   }, []);
 
@@ -47,62 +64,62 @@ export function useDiagramHistory(maxDepth = 30): UseDiagramHistoryReturn {
   // Push manual (llamado antes de una acción que queremos deshacer)
   // ------------------------------------------------------------------
   const push = useCallback(() => {
-    const snap = tomarSnapshot();
-    undoStack.current.push(snap);
+    undoStack.current.push(tomarSnapshot());
     if (undoStack.current.length > maxDepth) {
       undoStack.current.shift();
     }
     redoStack.current = [];
-  }, [maxDepth, tomarSnapshot]);
+    bump();
+  }, [maxDepth, tomarSnapshot, bump]);
 
   // ------------------------------------------------------------------
   // Undo
   // ------------------------------------------------------------------
   const undo = useCallback(() => {
-    const prev = undoStack.current.pop();
-    if (!prev) return;
-    const actual = tomarSnapshot();
-    redoStack.current.push(actual);
+    const previo = undoStack.current.pop();
+    if (!previo) return;
+    redoStack.current.push(tomarSnapshot());
 
     useDiagramaStore.setState({
-      clases: prev.clases,
-      relaciones: prev.relaciones,
-      interfaces: prev.interfaces,
+      clases: previo.clases,
+      interfaces: previo.interfaces,
+      relaciones: previo.relaciones,
+      haycambiosSinGuardar: true,
     });
-  }, [tomarSnapshot]);
+    bump();
+  }, [tomarSnapshot, bump]);
 
   // ------------------------------------------------------------------
   // Redo
   // ------------------------------------------------------------------
   const redo = useCallback(() => {
-    const next = redoStack.current.pop();
-    if (!next) return;
-    const actual = tomarSnapshot();
-    undoStack.current.push(actual);
+    const siguiente = redoStack.current.pop();
+    if (!siguiente) return;
+    undoStack.current.push(tomarSnapshot());
 
     useDiagramaStore.setState({
-      clases: next.clases,
-      relaciones: next.relaciones,
-      interfaces: next.interfaces,
+      clases: siguiente.clases,
+      interfaces: siguiente.interfaces,
+      relaciones: siguiente.relaciones,
+      haycambiosSinGuardar: true,
     });
-  }, [tomarSnapshot]);
+    bump();
+  }, [tomarSnapshot, bump]);
 
   // ------------------------------------------------------------------
-  // Atajos de teclado globales
+  // Atajos de teclado globales (Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z)
   // ------------------------------------------------------------------
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const isMac = navigator.platform.toUpperCase().includes('MAC');
       const mod = isMac ? e.metaKey : e.ctrlKey;
+      if (!mod) return;
 
-      if (mod && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+      const key = e.key.toLowerCase();
+      if (key === 'z' && !e.shiftKey) {
         e.preventDefault();
         undo();
-      } else if (
-        mod &&
-        (e.key.toLowerCase() === 'y' ||
-          (e.key.toLowerCase() === 'z' && e.shiftKey))
-      ) {
+      } else if (key === 'y' || (key === 'z' && e.shiftKey)) {
         e.preventDefault();
         redo();
       }

@@ -4,17 +4,25 @@
  *
  * - Lista los miembros actuales con su rol.
  * - Permite al PROPIETARIO cambiar roles y quitar miembros.
- * - Permite agregar un nuevo miembro por email.
+ * - Permite agregar un nuevo miembro por usuario (o por id).
+ *
+ * Contrato Ciclo 2 (proyecto_schema.py):
+ * - MiembroProyecto es EMBEBIDO: solo trae id_usuario + rol_en_proyecto
+ *   + joined_at — SIN id propio y SIN usuario anidado. El miembro se
+ *   identifica por id_usuario en los endpoints de miembros.
+ * - Los nombres/emails se resuelven en el cliente con la lista de
+ *   usuarios cargada (solo-ADMIN) + el usuario de la sesión; si no se
+ *   puede resolver, se muestra el id.
  */
 
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 
-import Avatar from "@/components/Avatar";
-import Button from "@/components/Button";
-import Modal from "@/components/Modal";
-import { useAuthStore, useProyectoStore, toast } from "@/store";
-import { usuariosApi } from "@/api/usuariosApi";
-import type { MiembroProyecto, RolEnProyecto, Usuario } from "@/types";
+import Avatar from '@/components/Avatar';
+import Button from '@/components/Button';
+import Modal from '@/components/Modal';
+import { usuariosApi } from '@/api';
+import { useAuthStore, useProyectoStore, toast } from '@/store';
+import type { Id, MiembroProyecto, RolEnProyecto, Usuario } from '@/types';
 
 // ======================================================================
 // Tipos
@@ -22,15 +30,15 @@ import type { MiembroProyecto, RolEnProyecto, Usuario } from "@/types";
 interface MiembrosProyectoModalProps {
   open: boolean;
   onClose: () => void;
-  proyectoId: number;
+  proyectoId: Id;
 }
 
-const ROLES: RolEnProyecto[] = ["PROPIETARIO", "EDITOR", "LECTOR"];
+const ROLES: RolEnProyecto[] = ['PROPIETARIO', 'EDITOR', 'LECTOR'];
 
 const ROL_LABEL: Record<RolEnProyecto, string> = {
-  PROPIETARIO: "Propietario",
-  EDITOR: "Editor",
-  LECTOR: "Lector",
+  PROPIETARIO: 'Propietario',
+  EDITOR: 'Editor',
+  LECTOR: 'Lector',
 };
 
 // ======================================================================
@@ -49,8 +57,8 @@ export function MiembrosProyectoModal({
 
   const usuarioActual = useAuthStore((s) => s.usuario);
 
-  const [idUsuarioNuevo, setIdUsuarioNuevo] = useState("");
-  const [rolNuevo, setRolNuevo] = useState<RolEnProyecto>("EDITOR");
+  const [idUsuarioNuevo, setIdUsuarioNuevo] = useState('');
+  const [rolNuevo, setRolNuevo] = useState<RolEnProyecto>('EDITOR');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -58,18 +66,14 @@ export function MiembrosProyectoModal({
 
   // Rol del usuario actual en este proyecto
   const miMiembro = miembros.find((m) => m.id_usuario === usuarioActual?.id);
-  const puedoGestionar = miMiembro?.rol_en_proyecto === "PROPIETARIO";
+  const puedoGestionar = miMiembro?.rol_en_proyecto === 'PROPIETARIO';
 
   const [usuariosDisponibles, setUsuariosDisponibles] = useState<Usuario[]>([]);
   const [cargandoUsuarios, setCargandoUsuarios] = useState(false);
   const [puedeListarUsuarios, setPuedeListarUsuarios] = useState(true);
 
-  // Cargar miembros al abrir
-  /*useEffect(() => {
-    if (open && proyectoId) {
-      void cargarProyectoActivo(proyectoId);
-    }
-  }, [open, proyectoId, cargarProyectoActivo]);*/
+  // Cargar miembros al abrir (el store protege contra recargas del
+  // mismo id con `idCargado`)
   useEffect(() => {
     if (!open || !proyectoId) return;
     void cargarProyectoActivo(proyectoId);
@@ -88,7 +92,7 @@ export function MiembrosProyectoModal({
         });
         setUsuariosDisponibles(items);
         setPuedeListarUsuarios(true);
-      } catch (err) {
+      } catch {
         // Si no es ADMIN, el backend devuelve 403. Caemos al input de ID.
         setPuedeListarUsuarios(false);
         setUsuariosDisponibles([]);
@@ -101,31 +105,41 @@ export function MiembrosProyectoModal({
   }, [open]);
 
   // ------------------------------------------------------------------
-  // Agregar miembro
+  // Resolución de nombres: MiembroProyecto NO trae el usuario anidado,
+  // así que armamos un mapa id → Usuario con la lista cargada (ADMIN)
+  // y el usuario de la sesión.
+  // ------------------------------------------------------------------
+  const usuariosPorId = useMemo(() => {
+    const mapa = new Map<Id, Usuario>();
+    if (usuarioActual) mapa.set(usuarioActual.id, usuarioActual);
+    for (const u of usuariosDisponibles) mapa.set(u.id, u);
+    return mapa;
+  }, [usuarioActual, usuariosDisponibles]);
+
+  // ------------------------------------------------------------------
+  // Agregar miembro (firma del store: agregarMiembro(proyectoId,
+  // idUsuario, rol?) — el id va como string hex, sin parseInt)
   // ------------------------------------------------------------------
   async function handleAgregar(e: FormEvent) {
     e.preventDefault();
     if (isLoading) return;
 
-    const id = parseInt(idUsuarioNuevo, 10);
-    if (!id || id <= 0) {
-      setError("Seleccioná o ingresá un ID de usuario válido");
+    const id = idUsuarioNuevo.trim();
+    if (!id) {
+      setError('Seleccioná o ingresá un ID de usuario válido');
       return;
     }
 
     setIsLoading(true);
     setError(null);
     try {
-      await agregarMiembro(proyectoId, {
-        id_usuario: id,
-        rol_en_proyecto: rolNuevo,
-      });
-      toast.success("Miembro agregado");
-      setIdUsuarioNuevo("");
-      setRolNuevo("EDITOR");
+      await agregarMiembro(proyectoId, id, rolNuevo);
+      toast.success('Miembro agregado');
+      setIdUsuarioNuevo('');
+      setRolNuevo('EDITOR');
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "No se pudo agregar el miembro",
+        err instanceof Error ? err.message : 'No se pudo agregar el miembro'
       );
     } finally {
       setIsLoading(false);
@@ -133,36 +147,36 @@ export function MiembrosProyectoModal({
   }
 
   // ------------------------------------------------------------------
-  // Cambiar rol
+  // Cambiar rol ({miembro_id} de la ruta == id_usuario)
   // ------------------------------------------------------------------
-  async function handleCambiarRol(miembroId: number, nuevoRol: RolEnProyecto) {
+  async function handleCambiarRol(idUsuario: Id, nuevoRol: RolEnProyecto) {
     try {
-      await cambiarRolMiembro(proyectoId, miembroId, nuevoRol);
-      toast.success("Rol actualizado");
+      await cambiarRolMiembro(proyectoId, idUsuario, nuevoRol);
+      toast.success('Rol actualizado');
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "No se pudo cambiar el rol",
+        err instanceof Error ? err.message : 'No se pudo cambiar el rol'
       );
     }
   }
 
   // ------------------------------------------------------------------
-  // Quitar miembro
+  // Quitar miembro (por id_usuario)
   // ------------------------------------------------------------------
   async function handleQuitar(miembro: MiembroProyecto) {
     const esYoMismo = miembro.id_usuario === usuarioActual?.id;
     const mensaje = esYoMismo
-      ? "¿Seguro que querés salir del proyecto?"
+      ? '¿Seguro que querés salir del proyecto?'
       : `¿Quitar a este miembro del proyecto?`;
 
     if (!window.confirm(mensaje)) return;
 
     try {
-      await quitarMiembro(proyectoId, miembro.id);
-      toast.success(esYoMismo ? "Saliste del proyecto" : "Miembro quitado");
+      await quitarMiembro(proyectoId, miembro.id_usuario);
+      toast.success(esYoMismo ? 'Saliste del proyecto' : 'Miembro quitado');
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "No se pudo quitar al miembro",
+        err instanceof Error ? err.message : 'No se pudo quitar al miembro'
       );
     }
   }
@@ -186,25 +200,25 @@ export function MiembrosProyectoModal({
 
         {miembros.map((m) => {
           const esYo = m.id_usuario === usuarioActual?.id;
-          const esPropietario = m.rol_en_proyecto === "PROPIETARIO";
-          const nombre =
-            m.usuario?.nombre_completo ?? `Usuario #${m.id_usuario}`;
+          const esPropietario = m.rol_en_proyecto === 'PROPIETARIO';
+          const datos = usuariosPorId.get(m.id_usuario);
+          const nombre = datos?.nombre_completo ?? `Usuario ${m.id_usuario}`;
 
           return (
             <div
-              key={m.id}
+              key={m.id_usuario}
               className="flex items-center gap-3 rounded-md border border-surface-800 bg-surface-900/40 p-3"
             >
               <Avatar id={m.id_usuario} nombre={nombre} size="md" />
 
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-surface-100">
-                  {nombre}{" "}
+                  {nombre}{' '}
                   {esYo && <span className="text-surface-500">(vos)</span>}
                 </p>
-                {m.usuario?.email && (
+                {datos?.email && (
                   <p className="truncate text-xs text-surface-500">
-                    {m.usuario.email}
+                    {datos.email}
                   </p>
                 )}
               </div>
@@ -214,11 +228,11 @@ export function MiembrosProyectoModal({
                 <select
                   value={m.rol_en_proyecto}
                   onChange={(e) =>
-                    void handleCambiarRol(m.id, e.target.value as RolEnProyecto)
+                    void handleCambiarRol(m.id_usuario, e.target.value as RolEnProyecto)
                   }
                   className="input-base h-8 w-32 py-0 text-xs"
                 >
-                  {ROLES.filter((r) => r !== "PROPIETARIO").map((r) => (
+                  {ROLES.filter((r) => r !== 'PROPIETARIO').map((r) => (
                     <option key={r} value={r}>
                       {ROL_LABEL[r]}
                     </option>
@@ -227,24 +241,25 @@ export function MiembrosProyectoModal({
               ) : (
                 <span
                   className={[
-                    "rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
+                    'rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider',
                     esPropietario
-                      ? "bg-brand-600/20 text-brand-300"
-                      : "bg-surface-700 text-surface-300",
-                  ].join(" ")}
+                      ? 'bg-brand-600/20 text-brand-300'
+                      : 'bg-surface-700 text-surface-300',
+                  ].join(' ')}
                 >
                   {ROL_LABEL[m.rol_en_proyecto]}
                 </span>
               )}
 
-              {/* Quitar: PROPIETARIO solo si no es el propietario; otros siempre si puedo gestionar o soy yo */}
+              {/* Quitar: PROPIETARIO solo si no es el propietario; otros
+                  siempre si puedo gestionar o soy yo */}
               {!esPropietario && (puedoGestionar || esYo) && (
                 <button
                   type="button"
                   onClick={() => void handleQuitar(m)}
                   className="flex-shrink-0 rounded-md p-1.5 text-surface-500 hover:bg-danger/10 hover:text-danger"
                   aria-label="Quitar miembro"
-                  title={esYo ? "Salir del proyecto" : "Quitar miembro"}
+                  title={esYo ? 'Salir del proyecto' : 'Quitar miembro'}
                 >
                   <svg
                     className="h-4 w-4"
@@ -287,34 +302,33 @@ export function MiembrosProyectoModal({
             className="flex flex-col gap-2 sm:flex-row"
           >
             {puedeListarUsuarios ? (
-              <>
-                <select
-                  value={idUsuarioNuevo}
-                  onChange={(e) => {
-                    setIdUsuarioNuevo(e.target.value);
-                    if (error) setError(null);
-                  }}
-                  className="input-base flex-1"
-                  disabled={isLoading || cargandoUsuarios}
-                >
-                  <option value="">
-                    {cargandoUsuarios
-                      ? "Cargando usuarios…"
-                      : "Seleccioná un usuario…"}
-                  </option>
-                  {usuariosDisponibles
-                    .filter((u) => !miembros.some((m) => m.id_usuario === u.id))
-                    .map((u) => (
-                      <option key={u.id} value={u.id.toString()}>
-                        {u.nombre_completo} ({u.email})
-                      </option>
-                    ))}
-                </select>
-              </>
+              <select
+                value={idUsuarioNuevo}
+                onChange={(e) => {
+                  setIdUsuarioNuevo(e.target.value);
+                  if (error) setError(null);
+                }}
+                className="input-base flex-1"
+                disabled={isLoading || cargandoUsuarios}
+              >
+                <option value="">
+                  {cargandoUsuarios
+                    ? 'Cargando usuarios…'
+                    : 'Seleccioná un usuario…'}
+                </option>
+                {usuariosDisponibles
+                  .filter((u) => !miembros.some((m) => m.id_usuario === u.id))
+                  .map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.nombre_completo} ({u.email})
+                    </option>
+                  ))}
+              </select>
             ) : (
+              // Sin permisos de listado (no-ADMIN): input manual del id
+              // (string hex de ObjectId, no numérico)
               <input
-                type="number"
-                min={1}
+                type="text"
                 value={idUsuarioNuevo}
                 onChange={(e) => {
                   setIdUsuarioNuevo(e.target.value);
@@ -332,7 +346,7 @@ export function MiembrosProyectoModal({
               className="input-base sm:w-32"
               disabled={isLoading}
             >
-              {ROLES.filter((r) => r !== "PROPIETARIO").map((r) => (
+              {ROLES.filter((r) => r !== 'PROPIETARIO').map((r) => (
                 <option key={r} value={r}>
                   {ROL_LABEL[r]}
                 </option>
@@ -350,7 +364,8 @@ export function MiembrosProyectoModal({
           </form>
 
           <p className="mt-2 text-xs text-surface-500">
-            Ingresá el ID del usuario registrado en la plataforma.
+            El backend usa EDITOR por defecto; acá podés elegir Editor o
+            Lector.
           </p>
         </div>
       )}

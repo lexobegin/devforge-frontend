@@ -1,34 +1,38 @@
 // src/store/diagramaStore.ts
 /**
- * Store del diagrama UML.
+ * Store del editor de diagramas UML (zustand).
  *
- * Este es el store más complejo porque maneja el estado del lienzo:
- * - Metadata del diagrama.
- * - Lista de clases, atributos, operaciones, interfaces, relaciones.
- * - Selección actual (para el panel de propiedades).
- * - Sincronización con el backend tras cada cambio.
+ * Responsabilidades:
+ * - Cargar el diagrama completo (GET /diagramas/{id}/completo) y
+ *   repartir clases / interfaces / relaciones en colecciones planas.
+ * - CRUD de clases, atributos, operaciones, relaciones e interfaces
+ *   contra `diagramasApi` (convención Ciclo 2: TODO embebido — los ids
+ *   de clase/atributo/... son uuid str, el del diagrama es ObjectId hex).
+ * - Actualizaciones OPTIMISTAS con rollback: primero se cambia el estado
+ *   local (el lienzo responde al instante), después se persiste por
+ *   REST; si la API falla, se restaura el estado previo.
+ * - Aplicar cambios REMOTOS que llegan por el WebSocket de colaboración
+ *   (aplicar*Remota) SIN marcar cambios pendientes de guardar.
  *
- * Convención: los métodos de mutación actualizan el estado local de
- * inmediato (optimistic UI) y luego sincronizan con el backend. Si el
- * backend falla, se hace rollback del estado local.
+ * El historial fino (undo/redo del editor) vive en
+ * features/diagrama-editor/hooks/useDiagramHistory (F52); acá queda un
+ * historial local simple por si el editor quiere integrarlo temprano.
  */
 
 import { create } from 'zustand';
 
-import { diagramasApi, ApiError } from '@/api';
+import { ApiError, diagramasApi } from '@/api';
 import type {
-  AtributoUML,
   AtributoUMLCreate,
   AtributoUMLUpdate,
   ClaseUML,
   ClaseUMLCreate,
   ClaseUMLUpdate,
   Diagrama,
-  DiagramaCompleto,
+  Id,
   InterfazUML,
   InterfazUMLCreate,
   InterfazUMLUpdate,
-  OperacionUML,
   OperacionUMLCreate,
   OperacionUMLUpdate,
   RelacionUML,
@@ -37,105 +41,163 @@ import type {
 } from '@/types';
 
 // ======================================================================
-// Tipos
+// Tipos exportados
 // ======================================================================
+/** Elemento seleccionado en el lienzo (id uuid de embebido u ObjectId). */
 export type ElementoSeleccionado =
-  | { tipo: 'clase'; id: number }
-  | { tipo: 'interfaz'; id: number }
-  | { tipo: 'relacion'; id: number }
-  | { tipo: 'diagrama'; id: number }
+  | { tipo: 'clase' | 'interfaz' | 'relacion' | 'diagrama'; id: Id }
   | null;
 
+export type ModoEditor =
+  | 'select'
+  | 'add-class'
+  | 'add-relation'
+  | 'add-interface';
+
+/** Snapshot local para el historial simple de deshacer/rehacer. */
+interface SnapshotDiagrama {
+  clases: ClaseUML[];
+  interfaces: InterfazUML[];
+  relaciones: RelacionUML[];
+}
+
+// ======================================================================
+// Estado
+// ======================================================================
 interface DiagramaState {
-  // --- Metadata ---
   diagrama: Diagrama | null;
   clases: ClaseUML[];
   interfaces: InterfazUML[];
   relaciones: RelacionUML[];
-
-  // --- Selección ---
   seleccion: ElementoSeleccionado;
-
-  // --- UI state del editor ---
-  modoEditor: 'select' | 'add-class' | 'add-relation' | 'add-interface';
+  modoEditor: ModoEditor;
+  /** Hay cambios locales que el editor aún no marcó como guardados. */
   haycambiosSinGuardar: boolean;
-  historialLocal: { undo: unknown[]; redo: unknown[] };
-
-  // --- Loading ---
+  historialLocal: {
+    undo: SnapshotDiagrama[];
+    redo: SnapshotDiagrama[];
+  };
   isLoading: boolean;
   isSaving: boolean;
   error: string | null;
 
-  // --- Acciones: carga ---
-  cargarDiagrama: (id: number) => Promise<void>;
-  limpiar: () => void;
+  // Carga / sesión del editor
+  cargarDiagrama: (id: Id) => Promise<void>;
+  limpiarDiagrama: () => void;
+  setSeleccion: (seleccion: ElementoSeleccionado) => void;
+  setModoEditor: (modo: ModoEditor) => void;
+  marcarGuardado: () => void;
+  deshacerLocal: () => void;
+  rehacerLocal: () => void;
 
-  // --- Acciones: selección y modo ---
-  seleccionar: (elemento: ElementoSeleccionado) => void;
-  setModoEditor: (modo: DiagramaState['modoEditor']) => void;
-
-  // --- Acciones: clases ---
+  // Clases
   crearClase: (payload: ClaseUMLCreate) => Promise<ClaseUML>;
-  actualizarClase: (id: number, payload: ClaseUMLUpdate) => Promise<void>;
-  eliminarClase: (id: number) => Promise<void>;
-  moverClase: (id: number, pos_x: number, pos_y: number) => void;
+  actualizarClase: (claseId: Id, payload: ClaseUMLUpdate) => Promise<void>;
+  eliminarClase: (claseId: Id) => Promise<void>;
+  /** Solo cambia la posición en local; el componente persiste con debounce. */
+  moverClase: (claseId: Id, pos_x: number, pos_y: number) => void;
 
-  // --- Acciones: atributos ---
-  agregarAtributo: (
-    claseId: number,
-    payload: AtributoUMLCreate
-  ) => Promise<AtributoUML>;
-  actualizarAtributo: (
-    claseId: number,
-    atributoId: number,
-    payload: AtributoUMLUpdate
-  ) => Promise<void>;
-  eliminarAtributo: (claseId: number, atributoId: number) => Promise<void>;
+  // Atributos
+  agregarAtributo: (claseId: Id, payload: AtributoUMLCreate) => Promise<void>;
+  actualizarAtributo: (atributoId: Id, payload: AtributoUMLUpdate) => Promise<void>;
+  eliminarAtributo: (atributoId: Id) => Promise<void>;
 
-  // --- Acciones: operaciones ---
-  agregarOperacion: (
-    claseId: number,
-    payload: OperacionUMLCreate
-  ) => Promise<OperacionUML>;
-  actualizarOperacion: (
-    claseId: number,
-    operacionId: number,
-    payload: OperacionUMLUpdate
-  ) => Promise<void>;
-  eliminarOperacion: (claseId: number, operacionId: number) => Promise<void>;
+  // Operaciones
+  agregarOperacion: (claseId: Id, payload: OperacionUMLCreate) => Promise<void>;
+  actualizarOperacion: (operacionId: Id, payload: OperacionUMLUpdate) => Promise<void>;
+  eliminarOperacion: (operacionId: Id) => Promise<void>;
 
-  // --- Acciones: relaciones ---
+  // Relaciones
   crearRelacion: (payload: RelacionUMLCreate) => Promise<RelacionUML>;
-  actualizarRelacion: (
-    id: number,
-    payload: RelacionUMLUpdate
-  ) => Promise<void>;
-  eliminarRelacion: (id: number) => Promise<void>;
+  actualizarRelacion: (relacionId: Id, payload: RelacionUMLUpdate) => Promise<void>;
+  eliminarRelacion: (relacionId: Id) => Promise<void>;
 
-  // --- Acciones: interfaces ---
+  // Interfaces
   crearInterfaz: (payload: InterfazUMLCreate) => Promise<InterfazUML>;
-  actualizarInterfaz: (
-    id: number,
-    payload: InterfazUMLUpdate
-  ) => Promise<void>;
-  eliminarInterfaz: (id: number) => Promise<void>;
+  actualizarInterfaz: (interfazId: Id, payload: InterfazUMLUpdate) => Promise<void>;
+  eliminarInterfaz: (interfazId: Id) => Promise<void>;
 
-  // --- Acciones: desde WebSocket (aplican cambios de otros colaboradores) ---
+  // Cambios remotos (WebSocket)
   aplicarClaseRemota: (clase: ClaseUML) => void;
-  aplicarClaseEliminada: (claseId: number) => void;
+  aplicarClaseEliminada: (claseId: Id) => void;
   aplicarRelacionRemota: (relacion: RelacionUML) => void;
-  aplicarRelacionEliminada: (relacionId: number) => void;
+  aplicarRelacionEliminada: (relacionId: Id) => void;
 
-  // --- Utilidades ---
-  getClase: (id: number) => ClaseUML | undefined;
+  // Utilidades
+  getClase: (claseId: Id) => ClaseUML | undefined;
   limpiarError: () => void;
+}
+
+// ======================================================================
+// Helpers
+// ======================================================================
+function _msg(err: unknown): string {
+  if (err instanceof ApiError) return err.detail || 'Error inesperado';
+  if (err instanceof Error && err.message) return err.message;
+  return 'Error inesperado';
+}
+
+function _snapshot(estado: DiagramaState): SnapshotDiagrama {
+  return {
+    clases: estado.clases,
+    interfaces: estado.interfaces,
+    relaciones: estado.relaciones,
+  };
+}
+
+/** Guarda el estado previo en undo y vacía redo (tras un cambio local). */
+function _empujarHistorial(
+  set: (
+    partial:
+      | Partial<DiagramaState>
+      | ((state: DiagramaState) => Partial<DiagramaState>)
+  ) => void,
+  previo: SnapshotDiagrama
+): void {
+  set((s) => ({
+    historialLocal: {
+      undo: [...s.historialLocal.undo.slice(-49), previo],
+      redo: [],
+    },
+  }));
+}
+
+/** Reemplaza una clase embebida en la colección por id. */
+function _reemplazarClase(
+  clases: ClaseUML[],
+  claseId: Id,
+  cambios: Partial<ClaseUML>
+): ClaseUML[] {
+  return clases.map((c) => (c.id === claseId ? { ...c, ...cambios } : c));
+}
+
+/** Inserta o reemplaza un elemento de la colección (upsert remoto). */
+function _upsert<T extends { id: Id }>(lista: T[], elemento: T): T[] {
+  const idx = lista.findIndex((e) => e.id === elemento.id);
+  if (idx === -1) return [...lista, elemento];
+  const copia = [...lista];
+  copia[idx] = elemento;
+  return copia;
+}
+
+/** Quita una clase y, en cascada, las relaciones que la referencian. */
+function _quitarClaseEnCascada(
+  clases: ClaseUML[],
+  relaciones: RelacionUML[],
+  claseId: Id
+): Pick<SnapshotDiagrama, 'clases' | 'relaciones'> {
+  return {
+    clases: clases.filter((c) => c.id !== claseId),
+    relaciones: relaciones.filter(
+      (r) => r.id_clase_origen !== claseId && r.id_clase_destino !== claseId
+    ),
+  };
 }
 
 // ======================================================================
 // Store
 // ======================================================================
-export const useDiagramaStore = create<DiagramaState>((set, get) => ({
-  // --- Estado inicial ---
+export const useDiagramaStore = create<DiagramaState>()((set, get) => ({
   diagrama: null,
   clases: [],
   interfaces: [],
@@ -149,36 +211,32 @@ export const useDiagramaStore = create<DiagramaState>((set, get) => ({
   error: null,
 
   // ------------------------------------------------------------------
-  // Carga
+  // Carga / sesión del editor
   // ------------------------------------------------------------------
   cargarDiagrama: async (id) => {
     set({ isLoading: true, error: null });
     try {
-      const completo: DiagramaCompleto = await diagramasApi.obtenerCompleto(id);
+      const completo = await diagramasApi.obtenerCompleto(id);
+      const { clases, interfaces, relaciones, ...diagrama } = completo;
       set({
-        diagrama: {
-          id: completo.id,
-          id_proyecto: completo.id_proyecto,
-          nombre: completo.nombre,
-          version_uml: completo.version_uml,
-          numero_version: completo.numero_version,
-          id_creador: completo.id_creador,
-          created_at: completo.created_at,
-          updated_at: completo.updated_at,
-        },
-        clases: completo.clases,
-        interfaces: completo.interfaces,
-        relaciones: completo.relaciones,
+        diagrama,
+        clases,
+        interfaces,
+        relaciones,
         seleccion: null,
-        isLoading: false,
+        modoEditor: 'select',
         haycambiosSinGuardar: false,
+        historialLocal: { undo: [], redo: [] },
       });
     } catch (err) {
-      set({ isLoading: false, error: _msg(err) });
+      set({ error: _msg(err) });
+      throw err;
+    } finally {
+      set({ isLoading: false });
     }
   },
 
-  limpiar: () =>
+  limpiarDiagrama: () =>
     set({
       diagrama: null,
       clases: [],
@@ -187,99 +245,131 @@ export const useDiagramaStore = create<DiagramaState>((set, get) => ({
       seleccion: null,
       modoEditor: 'select',
       haycambiosSinGuardar: false,
+      historialLocal: { undo: [], redo: [] },
       error: null,
     }),
 
-  // ------------------------------------------------------------------
-  // Selección / modo
-  // ------------------------------------------------------------------
-  seleccionar: (elemento) => set({ seleccion: elemento }),
-  setModoEditor: (modo) => set({ modoEditor: modo }),
+  setSeleccion: (seleccion) => set({ seleccion }),
+  setModoEditor: (modoEditor) => set({ modoEditor }),
+
+  marcarGuardado: () => set({ haycambiosSinGuardar: false }),
+
+  deshacerLocal: () => {
+    const { historialLocal } = get();
+    const previo = historialLocal.undo[historialLocal.undo.length - 1];
+    if (!previo) return;
+    const actual = _snapshot(get());
+    set({
+      clases: previo.clases,
+      interfaces: previo.interfaces,
+      relaciones: previo.relaciones,
+      historialLocal: {
+        undo: historialLocal.undo.slice(0, -1),
+        redo: [...historialLocal.redo, actual],
+      },
+      haycambiosSinGuardar: true,
+    });
+  },
+
+  rehacerLocal: () => {
+    const { historialLocal } = get();
+    const siguiente = historialLocal.redo[historialLocal.redo.length - 1];
+    if (!siguiente) return;
+    const actual = _snapshot(get());
+    set({
+      clases: siguiente.clases,
+      interfaces: siguiente.interfaces,
+      relaciones: siguiente.relaciones,
+      historialLocal: {
+        undo: [...historialLocal.undo, actual],
+        redo: historialLocal.redo.slice(0, -1),
+      },
+      haycambiosSinGuardar: true,
+    });
+  },
 
   // ------------------------------------------------------------------
   // Clases
   // ------------------------------------------------------------------
   crearClase: async (payload) => {
     const diagrama = get().diagrama;
-    if (!diagrama) throw new Error('No hay diagrama cargado');
-
+    if (!diagrama) {
+      throw new Error('No hay diagrama cargado');
+    }
     set({ isSaving: true, error: null });
     try {
       const clase = await diagramasApi.crearClase(diagrama.id, payload);
-      set((state) => ({
-        clases: [...state.clases, clase],
-        isSaving: false,
-        haycambiosSinGuardar: true,
-      }));
+      _empujarHistorial(set, _snapshot(get()));
+      set((s) => ({ clases: [...s.clases, clase], haycambiosSinGuardar: true }));
       return clase;
     } catch (err) {
-      set({ isSaving: false, error: _msg(err) });
+      set({ error: _msg(err) });
       throw err;
+    } finally {
+      set({ isSaving: false });
     }
   },
 
-  actualizarClase: async (id, payload) => {
-    const anterior = get().clases.find((c) => c.id === id);
-    if (!anterior) return;
-    console.log('[actualizarClase] payload:', payload); 
-    // Optimistic update
-    set((state) => ({
-      clases: state.clases.map((c) =>
-        c.id === id ? { ...c, ...payload } : c
-      ),
+  /**
+   * Optimista: se aplica en local, se persiste por REST y, si falla,
+   * se restaura el estado previo (el lienzo nunca se queda a medias).
+   */
+  actualizarClase: async (claseId, payload) => {
+    const previo = _snapshot(get());
+    set((s) => ({
+      clases: _reemplazarClase(s.clases, claseId, payload as Partial<ClaseUML>),
+      haycambiosSinGuardar: true,
     }));
-
+    set({ isSaving: true, error: null });
     try {
-      const actualizada = await diagramasApi.actualizarClase(id, payload);
-      set((state) => ({
-        clases: state.clases.map((c) =>
-          c.id === id ? actualizada : c
-        ),
-      }));
+      await diagramasApi.actualizarClase(claseId, payload);
+      _empujarHistorial(set, previo);
     } catch (err) {
-      // Rollback
-      set((state) => ({
-        clases: state.clases.map((c) => (c.id === id ? anterior : c)),
-        error: _msg(err),
-      }));
+      set({ clases: previo.clases, error: _msg(err) });
       throw err;
+    } finally {
+      set({ isSaving: false });
     }
   },
 
-  eliminarClase: async (id) => {
-    const anterior = get().clases;
-    const relacionesAnteriores = get().relaciones;
-
-    // Optimistic
-    set((state) => ({
-      clases: state.clases.filter((c) => c.id !== id),
-      relaciones: state.relaciones.filter(
-        (r) => r.id_clase_origen !== id && r.id_clase_destino !== id
-      ),
+  eliminarClase: async (claseId) => {
+    // Cascada local: las relaciones hacia/desde la clase dejan de existir.
+    const previo = _snapshot(get());
+    const { clases, relaciones } = _quitarClaseEnCascada(
+      get().clases,
+      get().relaciones,
+      claseId
+    );
+    set((s) => ({
+      clases,
+      relaciones,
+      // Si se borró lo seleccionado, limpiar la selección.
       seleccion:
-        state.seleccion?.tipo === 'clase' && state.seleccion.id === id
-          ? null
-          : state.seleccion,
+        s.seleccion?.id === claseId ? null : s.seleccion,
+      haycambiosSinGuardar: true,
     }));
-
+    set({ isSaving: true, error: null });
     try {
-      await diagramasApi.eliminarClase(id);
+      await diagramasApi.eliminarClase(claseId);
+      _empujarHistorial(set, previo);
     } catch (err) {
-      // Rollback
-      set({ clases: anterior, relaciones: relacionesAnteriores, error: _msg(err) });
+      set({
+        clases: previo.clases,
+        relaciones: previo.relaciones,
+        error: _msg(err),
+      });
       throw err;
+    } finally {
+      set({ isSaving: false });
     }
   },
 
-  moverClase: (id, pos_x, pos_y) => {
-    // Solo actualiza el estado local. El guardado real lo hace el
-    // componente que maneja el drag stop (con debounce).
-    set((state) => ({
-      clases: state.clases.map((c) =>
-        c.id === id ? { ...c, pos_x, pos_y } : c
-      ),
-    }));
-  },
+  /** Solo local: el componente llama a actualizarClase con debounce. */
+  moverClase: (claseId, pos_x, pos_y) =>
+    set((s) => ({
+      clases: _reemplazarClase(s.clases, claseId, { pos_x, pos_y }),
+      haycambiosSinGuardar: true,
+    })),
 
   // ------------------------------------------------------------------
   // Atributos
@@ -287,66 +377,65 @@ export const useDiagramaStore = create<DiagramaState>((set, get) => ({
   agregarAtributo: async (claseId, payload) => {
     const diagrama = get().diagrama;
     if (!diagrama) throw new Error('No hay diagrama cargado');
-
     set({ isSaving: true, error: null });
     try {
       const atributo = await diagramasApi.agregarAtributo(claseId, payload);
-      set((state) => ({
-        clases: state.clases.map((c) =>
+      set((s) => ({
+        clases: s.clases.map((c) =>
           c.id === claseId
             ? { ...c, atributos: [...c.atributos, atributo] }
             : c
         ),
-        isSaving: false,
+        haycambiosSinGuardar: true,
       }));
-      return atributo;
     } catch (err) {
-      set({ isSaving: false, error: _msg(err) });
+      set({ error: _msg(err) });
       throw err;
+    } finally {
+      set({ isSaving: false });
     }
   },
 
-  actualizarAtributo: async (claseId, atributoId, payload) => {
+  actualizarAtributo: async (atributoId, payload) => {
+    set({ isSaving: true, error: null });
     try {
       const actualizado = await diagramasApi.actualizarAtributo(
         atributoId,
         payload
       );
-      set((state) => ({
-        clases: state.clases.map((c) =>
-          c.id === claseId
-            ? {
-                ...c,
-                atributos: c.atributos.map((a) =>
-                  a.id === atributoId ? actualizado : a
-                ),
-              }
-            : c
-        ),
+      set((s) => ({
+        clases: s.clases.map((c) => ({
+          ...c,
+          atributos: c.atributos.map((a) =>
+            a.id === atributoId ? actualizado : a
+          ),
+        })),
+        haycambiosSinGuardar: true,
       }));
     } catch (err) {
       set({ error: _msg(err) });
       throw err;
+    } finally {
+      set({ isSaving: false });
     }
   },
 
-  eliminarAtributo: async (claseId, atributoId) => {
-    const anterior = get().clases;
-    set((state) => ({
-      clases: state.clases.map((c) =>
-        c.id === claseId
-          ? {
-              ...c,
-              atributos: c.atributos.filter((a) => a.id !== atributoId),
-            }
-          : c
-      ),
-    }));
+  eliminarAtributo: async (atributoId) => {
+    set({ isSaving: true, error: null });
     try {
       await diagramasApi.eliminarAtributo(atributoId);
+      set((s) => ({
+        clases: s.clases.map((c) => ({
+          ...c,
+          atributos: c.atributos.filter((a) => a.id !== atributoId),
+        })),
+        haycambiosSinGuardar: true,
+      }));
     } catch (err) {
-      set({ clases: anterior, error: _msg(err) });
+      set({ error: _msg(err) });
       throw err;
+    } finally {
+      set({ isSaving: false });
     }
   },
 
@@ -354,65 +443,67 @@ export const useDiagramaStore = create<DiagramaState>((set, get) => ({
   // Operaciones
   // ------------------------------------------------------------------
   agregarOperacion: async (claseId, payload) => {
+    const diagrama = get().diagrama;
+    if (!diagrama) throw new Error('No hay diagrama cargado');
     set({ isSaving: true, error: null });
     try {
       const operacion = await diagramasApi.agregarOperacion(claseId, payload);
-      set((state) => ({
-        clases: state.clases.map((c) =>
+      set((s) => ({
+        clases: s.clases.map((c) =>
           c.id === claseId
             ? { ...c, operaciones: [...c.operaciones, operacion] }
             : c
         ),
-        isSaving: false,
+        haycambiosSinGuardar: true,
       }));
-      return operacion;
     } catch (err) {
-      set({ isSaving: false, error: _msg(err) });
+      set({ error: _msg(err) });
       throw err;
+    } finally {
+      set({ isSaving: false });
     }
   },
 
-  actualizarOperacion: async (claseId, operacionId, payload) => {
+  actualizarOperacion: async (operacionId, payload) => {
+    set({ isSaving: true, error: null });
     try {
       const actualizada = await diagramasApi.actualizarOperacion(
         operacionId,
         payload
       );
-      set((state) => ({
-        clases: state.clases.map((c) =>
-          c.id === claseId
-            ? {
-                ...c,
-                operaciones: c.operaciones.map((o) =>
-                  o.id === operacionId ? actualizada : o
-                ),
-              }
-            : c
-        ),
+      set((s) => ({
+        clases: s.clases.map((c) => ({
+          ...c,
+          operaciones: c.operaciones.map((o) =>
+            o.id === operacionId ? actualizada : o
+          ),
+        })),
+        haycambiosSinGuardar: true,
       }));
     } catch (err) {
       set({ error: _msg(err) });
       throw err;
+    } finally {
+      set({ isSaving: false });
     }
   },
 
-  eliminarOperacion: async (claseId, operacionId) => {
-    const anterior = get().clases;
-    set((state) => ({
-      clases: state.clases.map((c) =>
-        c.id === claseId
-          ? {
-              ...c,
-              operaciones: c.operaciones.filter((o) => o.id !== operacionId),
-            }
-          : c
-      ),
-    }));
+  eliminarOperacion: async (operacionId) => {
+    set({ isSaving: true, error: null });
     try {
       await diagramasApi.eliminarOperacion(operacionId);
+      set((s) => ({
+        clases: s.clases.map((c) => ({
+          ...c,
+          operaciones: c.operaciones.filter((o) => o.id !== operacionId),
+        })),
+        haycambiosSinGuardar: true,
+      }));
     } catch (err) {
-      set({ clases: anterior, error: _msg(err) });
+      set({ error: _msg(err) });
       throw err;
+    } finally {
+      set({ isSaving: false });
     }
   },
 
@@ -422,49 +513,61 @@ export const useDiagramaStore = create<DiagramaState>((set, get) => ({
   crearRelacion: async (payload) => {
     const diagrama = get().diagrama;
     if (!diagrama) throw new Error('No hay diagrama cargado');
-
+    const previo = _snapshot(get());
     set({ isSaving: true, error: null });
     try {
       const relacion = await diagramasApi.crearRelacion(diagrama.id, payload);
-      set((state) => ({
-        relaciones: [...state.relaciones, relacion],
-        isSaving: false,
+      _empujarHistorial(set, previo);
+      set((s) => ({
+        relaciones: [...s.relaciones, relacion],
+        haycambiosSinGuardar: true,
       }));
       return relacion;
     } catch (err) {
-      set({ isSaving: false, error: _msg(err) });
-      throw err;
-    }
-  },
-
-  actualizarRelacion: async (id, payload) => {
-    try {
-      const actualizada = await diagramasApi.actualizarRelacion(id, payload);
-      set((state) => ({
-        relaciones: state.relaciones.map((r) =>
-          r.id === id ? actualizada : r
-        ),
-      }));
-    } catch (err) {
       set({ error: _msg(err) });
       throw err;
+    } finally {
+      set({ isSaving: false });
     }
   },
 
-  eliminarRelacion: async (id) => {
-    const anterior = get().relaciones;
-    set((state) => ({
-      relaciones: state.relaciones.filter((r) => r.id !== id),
-      seleccion:
-        state.seleccion?.tipo === 'relacion' && state.seleccion.id === id
-          ? null
-          : state.seleccion,
+  actualizarRelacion: async (relacionId, payload) => {
+    const previo = _snapshot(get());
+    set((s) => ({
+      relaciones: s.relaciones.map((r) =>
+        r.id === relacionId ? { ...r, ...payload } : r
+      ),
+      haycambiosSinGuardar: true,
     }));
+    set({ isSaving: true, error: null });
     try {
-      await diagramasApi.eliminarRelacion(id);
+      await diagramasApi.actualizarRelacion(relacionId, payload);
+      _empujarHistorial(set, previo);
     } catch (err) {
-      set({ relaciones: anterior, error: _msg(err) });
+      set({ relaciones: previo.relaciones, error: _msg(err) });
       throw err;
+    } finally {
+      set({ isSaving: false });
+    }
+  },
+
+  eliminarRelacion: async (relacionId) => {
+    const previo = _snapshot(get());
+    set((s) => ({
+      relaciones: s.relaciones.filter((r) => r.id !== relacionId),
+      seleccion:
+        s.seleccion?.id === relacionId ? null : s.seleccion,
+      haycambiosSinGuardar: true,
+    }));
+    set({ isSaving: true, error: null });
+    try {
+      await diagramasApi.eliminarRelacion(relacionId);
+      _empujarHistorial(set, previo);
+    } catch (err) {
+      set({ relaciones: previo.relaciones, error: _msg(err) });
+      throw err;
+    } finally {
+      set({ isSaving: false });
     }
   },
 
@@ -474,78 +577,96 @@ export const useDiagramaStore = create<DiagramaState>((set, get) => ({
   crearInterfaz: async (payload) => {
     const diagrama = get().diagrama;
     if (!diagrama) throw new Error('No hay diagrama cargado');
-
-    const interfaz = await diagramasApi.crearInterfaz(diagrama.id, payload);
-    set((state) => ({ interfaces: [...state.interfaces, interfaz] }));
-    return interfaz;
-  },
-
-  actualizarInterfaz: async (id, payload) => {
-    const actualizada = await diagramasApi.actualizarInterfaz(id, payload);
-    set((state) => ({
-      interfaces: state.interfaces.map((i) =>
-        i.id === id ? actualizada : i
-      ),
-    }));
-  },
-
-  eliminarInterfaz: async (id) => {
-    const anterior = get().interfaces;
-    set((state) => ({
-      interfaces: state.interfaces.filter((i) => i.id !== id),
-    }));
+    const previo = _snapshot(get());
+    set({ isSaving: true, error: null });
     try {
-      await diagramasApi.eliminarInterfaz(id);
+      const interfaz = await diagramasApi.crearInterfaz(diagrama.id, payload);
+      _empujarHistorial(set, previo);
+      set((s) => ({
+        interfaces: [...s.interfaces, interfaz],
+        haycambiosSinGuardar: true,
+      }));
+      return interfaz;
     } catch (err) {
-      set({ interfaces: anterior, error: _msg(err) });
+      set({ error: _msg(err) });
       throw err;
+    } finally {
+      set({ isSaving: false });
+    }
+  },
+
+  actualizarInterfaz: async (interfazId, payload) => {
+    const previo = _snapshot(get());
+    set((s) => ({
+      interfaces: s.interfaces.map((i) =>
+        i.id === interfazId ? { ...i, ...payload } : i
+      ),
+      haycambiosSinGuardar: true,
+    }));
+    set({ isSaving: true, error: null });
+    try {
+      await diagramasApi.actualizarInterfaz(interfazId, payload);
+      _empujarHistorial(set, previo);
+    } catch (err) {
+      set({ interfaces: previo.interfaces, error: _msg(err) });
+      throw err;
+    } finally {
+      set({ isSaving: false });
+    }
+  },
+
+  eliminarInterfaz: async (interfazId) => {
+    const previo = _snapshot(get());
+    set((s) => ({
+      interfaces: s.interfaces.filter((i) => i.id !== interfazId),
+      seleccion: s.seleccion?.id === interfazId ? null : s.seleccion,
+      haycambiosSinGuardar: true,
+    }));
+    set({ isSaving: true, error: null });
+    try {
+      await diagramasApi.eliminarInterfaz(interfazId);
+      _empujarHistorial(set, previo);
+    } catch (err) {
+      set({ interfaces: previo.interfaces, error: _msg(err) });
+      throw err;
+    } finally {
+      set({ isSaving: false });
     }
   },
 
   // ------------------------------------------------------------------
-  // Cambios remotos (desde WebSocket)
+  // Cambios remotos (WebSocket — NO marcan cambios pendientes)
   // ------------------------------------------------------------------
   aplicarClaseRemota: (clase) =>
-    set((state) => ({
-      clases: state.clases.some((c) => c.id === clase.id)
-        ? state.clases.map((c) => (c.id === clase.id ? clase : c))
-        : [...state.clases, clase],
-    })),
+    set((s) => ({ clases: _upsert(s.clases, clase) })),
 
   aplicarClaseEliminada: (claseId) =>
-    set((state) => ({
-      clases: state.clases.filter((c) => c.id !== claseId),
-      relaciones: state.relaciones.filter(
-        (r) => r.id_clase_origen !== claseId && r.id_clase_destino !== claseId
-      ),
-    })),
+    set((s) => {
+      const { clases, relaciones } = _quitarClaseEnCascada(
+        s.clases,
+        s.relaciones,
+        claseId
+      );
+      return {
+        clases,
+        relaciones,
+        seleccion: s.seleccion?.id === claseId ? null : s.seleccion,
+      };
+    }),
 
   aplicarRelacionRemota: (relacion) =>
-    set((state) => ({
-      relaciones: state.relaciones.some((r) => r.id === relacion.id)
-        ? state.relaciones.map((r) =>
-            r.id === relacion.id ? relacion : r
-          )
-        : [...state.relaciones, relacion],
-    })),
+    set((s) => ({ relaciones: _upsert(s.relaciones, relacion) })),
 
   aplicarRelacionEliminada: (relacionId) =>
-    set((state) => ({
-      relaciones: state.relaciones.filter((r) => r.id !== relacionId),
+    set((s) => ({
+      relaciones: s.relaciones.filter((r) => r.id !== relacionId),
+      seleccion: s.seleccion?.id === relacionId ? null : s.seleccion,
     })),
 
   // ------------------------------------------------------------------
   // Utilidades
   // ------------------------------------------------------------------
-  getClase: (id) => get().clases.find((c) => c.id === id),
+  getClase: (claseId) => get().clases.find((c) => c.id === claseId),
+
   limpiarError: () => set({ error: null }),
 }));
-
-// ======================================================================
-// Helper
-// ======================================================================
-function _msg(err: unknown): string {
-  if (err instanceof ApiError) return err.detail;
-  if (err instanceof Error) return err.message;
-  return 'Error inesperado';
-}

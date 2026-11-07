@@ -4,14 +4,18 @@
  *
  * Pide el nombre (y opcionalmente la versión UML) y crea el diagrama.
  * Al terminar, redirige al editor para empezar a modelar.
+ *
+ * Contrato Ciclo 2: DiagramaCreate = { nombre, version_uml? } (default
+ * "2.5.1", max 10 en el backend); los ids son string hex (Id).
  */
 
-import { FormEvent, useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import Button from '@/components/Button';
 import Modal from '@/components/Modal';
 import { diagramasApi } from '@/api';
+import type { Id } from '@/types';
 import { toast } from '@/store';
 
 // ======================================================================
@@ -20,9 +24,9 @@ import { toast } from '@/store';
 interface CrearDiagramaModalProps {
   open: boolean;
   onClose: () => void;
-  proyectoId: number;
-  /** Callback opcional tras crear el diagrama. */
-  onCreado?: (diagramaId: number) => void;
+  proyectoId: Id;
+  /** Callback opcional tras crear el diagrama (id string hex). */
+  onCreado?: (diagramaId: Id) => void;
 }
 
 // ======================================================================

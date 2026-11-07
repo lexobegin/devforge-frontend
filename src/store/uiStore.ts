@@ -1,9 +1,17 @@
 // src/store/uiStore.ts
 /**
- * Store de estado de UI global.
+ * Store de UI global (zustand): tema, sidebar, modales, toasts y
+ * paneles del editor.
  *
- * Mantiene: tema, sidebar, modales abiertos, toasts, preferencias de
- * visualización. Es estado puramente de interfaz, sin lógica de negocio.
+ * - Tema: `dark` (default) / `light`. El tema se aplica toggling la
+ *   clase `light` en <html> (Tailwind se configura con darkMode de
+ *   referencia; el CSS base define las variables de cada tema).
+ * - Sidebar: visible/oculto (el Navbar lo alterna con toggleSidebar).
+ * - Modales: un solo modal abierto a la vez (ModalKey | null).
+ * - Toasts: lista auto-removible con setTimeout (4 s por defecto).
+ *   El helper `toast.*` se puede usar fuera de React (api, offline...).
+ *
+ * Solo depende de zustand: nada de API ni de otros stores.
  */
 
 import { create } from 'zustand';
@@ -13,15 +21,7 @@ import { create } from 'zustand';
 // ======================================================================
 export type Theme = 'dark' | 'light';
 
-export type ToastTipo = 'success' | 'error' | 'warning' | 'info';
-
-export interface Toast {
-  id: string;
-  tipo: ToastTipo;
-  mensaje: string;
-  duracionMs: number;
-}
-
+/** Llaves de los modales globales de la app (uno a la vez). */
 export type ModalKey =
   | 'crearProyecto'
   | 'editarProyecto'
@@ -33,105 +33,103 @@ export type ModalKey =
   | 'subirBoceto'
   | null;
 
+export type ToastTipo = 'success' | 'error' | 'warning' | 'info';
+
+export interface Toast {
+  id: string;
+  tipo: ToastTipo;
+  mensaje: string;
+}
+
+// ======================================================================
+// Constantes
+// ======================================================================
+/** Duración por defecto de un toast (ms). */
+const TOAST_DURACION_MS = 4000;
+
+// ======================================================================
+// Estado
+// ======================================================================
 interface UIState {
-  // --- Tema ---
   theme: Theme;
-  setTheme: (theme: Theme) => void;
-  toggleTheme: () => void;
-
-  // --- Sidebar ---
-  sidebarOpen: boolean;
-  toggleSidebar: () => void;
-  setSidebarOpen: (open: boolean) => void;
-
-  // --- Modales ---
+  /** Clave del modal abierto, o null si ninguno. */
   modalAbierto: ModalKey;
-  modalPayload: Record<string, unknown> | null;
-  abrirModal: (key: ModalKey, payload?: Record<string, unknown>) => void;
-  cerrarModal: () => void;
-
-  // --- Toasts ---
+  /** Dato opcional para el modal (ej. id del proyecto a eliminar). */
+  modalData: unknown;
   toasts: Toast[];
-  addToast: (tipo: ToastTipo, mensaje: string, duracionMs?: number) => void;
-  removeToast: (id: string) => void;
-  clearToasts: () => void;
-
-  // --- Panel del editor ---
   panelPropiedadesAbierto: boolean;
-  togglePanelPropiedades: () => void;
-
-  // --- Preferencias del editor ---
   mostrarGrid: boolean;
-  toggleGrid: () => void;
   ajustarAGrid: boolean;
-  toggleAjustarAGrid: () => void;
+  /** Sidebar lateral visible (F29: lo alterna el Navbar). */
+  sidebarOpen: boolean;
+
+  alternarTema: () => void;
+  abrirModal: (key: Exclude<ModalKey, null>, data?: unknown) => void;
+  cerrarModal: () => void;
+  addToast: (tipo: ToastTipo, mensaje: string) => string;
+  removeToast: (id: string) => void;
+  alternarPanelPropiedades: () => void;
+  alternarGrid: () => void;
+  alternarAjustarAGrid: () => void;
+  toggleSidebar: () => void;
+}
+
+// ======================================================================
+// Aplicación del tema al documento
+// ======================================================================
+function aplicarTema(theme: Theme): void {
+  if (typeof document === 'undefined') return;
+  document.documentElement.classList.toggle('light', theme === 'light');
 }
 
 // ======================================================================
 // Store
 // ======================================================================
-export const useUIStore = create<UIState>((set) => ({
-  // --- Tema ---
+export const useUIStore = create<UIState>()((set, get) => ({
   theme: 'dark',
-  setTheme: (theme) => {
-    document.documentElement.classList.toggle('light', theme === 'light');
-    set({ theme });
-  },
-  toggleTheme: () =>
-    set((state) => {
-      const next: Theme = state.theme === 'dark' ? 'light' : 'dark';
-      document.documentElement.classList.toggle('light', next === 'light');
-      return { theme: next };
-    }),
-
-  // --- Sidebar ---
-  sidebarOpen: true,
-  toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
-  setSidebarOpen: (open) => set({ sidebarOpen: open }),
-
-  // --- Modales ---
   modalAbierto: null,
-  modalPayload: null,
-  abrirModal: (key, payload) =>
-    set({ modalAbierto: key, modalPayload: payload ?? null }),
-  cerrarModal: () => set({ modalAbierto: null, modalPayload: null }),
-
-  // --- Toasts ---
+  modalData: null,
   toasts: [],
-  addToast: (tipo, mensaje, duracionMs = 4000) =>
-    set((state) => {
-      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const nuevo: Toast = { id, tipo, mensaje, duracionMs };
-      // Auto-eliminar
-      if (typeof window !== 'undefined') {
-        window.setTimeout(() => {
-          useUIStore.getState().removeToast(id);
-        }, duracionMs);
-      }
-      return { toasts: [...state.toasts, nuevo] };
-    }),
-  removeToast: (id) =>
-    set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) })),
-  clearToasts: () => set({ toasts: [] }),
-
-  // --- Panel del editor ---
   panelPropiedadesAbierto: true,
-  togglePanelPropiedades: () =>
-    set((s) => ({ panelPropiedadesAbierto: !s.panelPropiedadesAbierto })),
-
-  // --- Preferencias del editor ---
   mostrarGrid: true,
-  toggleGrid: () => set((s) => ({ mostrarGrid: !s.mostrarGrid })),
   ajustarAGrid: true,
-  toggleAjustarAGrid: () => set((s) => ({ ajustarAGrid: !s.ajustarAGrid })),
+  sidebarOpen: true,
+
+  alternarTema: () => {
+    const nuevo: Theme = get().theme === 'dark' ? 'light' : 'dark';
+    aplicarTema(nuevo);
+    set({ theme: nuevo });
+  },
+
+  abrirModal: (key, data = null) => set({ modalAbierto: key, modalData: data }),
+  cerrarModal: () => set({ modalAbierto: null, modalData: null }),
+
+  addToast: (tipo, mensaje) => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    set((s) => ({ toasts: [...s.toasts, { id, tipo, mensaje }] }));
+    // Auto-remoción (guardamos el timer para poder cancelarlo si el
+    // toast se cierra manualmente antes).
+    window.setTimeout(() => get().removeToast(id), TOAST_DURACION_MS);
+    return id;
+  },
+
+  removeToast: (id) =>
+    set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+
+  alternarPanelPropiedades: () =>
+    set((s) => ({ panelPropiedadesAbierto: !s.panelPropiedadesAbierto })),
+  alternarGrid: () => set((s) => ({ mostrarGrid: !s.mostrarGrid })),
+  alternarAjustarAGrid: () =>
+    set((s) => ({ ajustarAGrid: !s.ajustarAGrid })),
+  toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
 }));
 
 // ======================================================================
-// Helpers para usar los toasts desde cualquier parte
+// Helper de conveniencia (usable fuera de componentes React)
 // ======================================================================
 export const toast = {
-  success: (m: string) => useUIStore.getState().addToast('success', m),
-  error: (m: string) => useUIStore.getState().addToast('error', m),
-  warning: (m: string) => useUIStore.getState().addToast('warning', m),
-  info: (m: string) => useUIStore.getState().addToast('info', m),
+  success: (mensaje: string) => useUIStore.getState().addToast('success', mensaje),
+  error: (mensaje: string) => useUIStore.getState().addToast('error', mensaje),
+  warning: (mensaje: string) => useUIStore.getState().addToast('warning', mensaje),
+  info: (mensaje: string) => useUIStore.getState().addToast('info', mensaje),
 };

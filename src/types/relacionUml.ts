@@ -1,13 +1,20 @@
 // src/types/relacionUml.ts
 /**
  * Tipos de relaciones e interfaces UML.
- * Reflejan `app/schemas/diagrama_schema.py` del backend.
+ * Reflejan `app/schemas/diagrama_schema.py` del backend Ciclo 2.
+ *
+ * Alineado con el backend (todo es EMBEBIDO en el documento Diagrama):
+ * - RelacionUML e InterfazUML no tienen id_diagrama (el alcance lo da
+ *   la anidación) y su id es un str uuid.
+ * - id_clase_origen / id_clase_destino son los ids uuid de las
+ *   ClaseUML embebidas del MISMO diagrama (antes FK int entre tablas).
+ * - OperacionInterfazUML no trae id_interfaz ni id_diagrama.
  */
 
 import type { Id } from './common';
 
 // ======================================================================
-// Enum
+// Enum (diagrama_schema.py → TipoRelacion)
 // ======================================================================
 export type TipoRelacion =
   | 'ASOCIACION'
@@ -18,11 +25,10 @@ export type TipoRelacion =
   | 'REALIZACION';
 
 // ======================================================================
-// Relación
+// Relación (RelacionUMLResponse — embebida en Diagrama.relaciones)
 // ======================================================================
 export interface RelacionUML {
   id: Id;
-  id_diagrama: Id;
   id_clase_origen: Id;
   id_clase_destino: Id;
   tipo_relacion: TipoRelacion;
@@ -56,11 +62,10 @@ export interface RelacionUMLUpdate {
 }
 
 // ======================================================================
-// Interfaz UML
+// Interfaz UML (InterfazUMLResponse — embebida en Diagrama.interfaces)
 // ======================================================================
 export interface OperacionInterfazUML {
   id: Id;
-  id_interfaz: Id;
   nombre: string;
   tipo_retorno: string;
 }
@@ -77,7 +82,6 @@ export interface OperacionInterfazUMLUpdate {
 
 export interface InterfazUML {
   id: Id;
-  id_diagrama: Id;
   nombre: string;
   pos_x: number;
   pos_y: number;

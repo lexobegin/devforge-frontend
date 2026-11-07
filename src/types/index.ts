@@ -4,6 +4,10 @@
  *
  * Uso:
  *   import type { Usuario, Proyecto, ClaseUML } from '@/types';
+ *
+ * Cubre TODOS los tipos exportados por los módulos del directorio
+ * (verificado por scripts/verifica_tandaF9F10.py: cada `export` de
+ * cada archivo aparece acá).
  */
 
 // Common
@@ -11,6 +15,7 @@ export type {
   PaginatedResponse,
   PaginationParams,
   ApiErrorBody,
+  ApiErrorCode,
   ISODateString,
   Id,
   LoadStatus,

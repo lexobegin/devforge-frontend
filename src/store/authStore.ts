@@ -10,6 +10,9 @@
  *
  * Persistencia: los tokens viven en localStorage (vía tokenStorage).
  * El objeto `usuario` se reconstruye llamando a `/auth/me` en el bootstrap.
+ *
+ * Nota: `limpiarBaseLocal` (IndexedDB/dexie) llega en la Tanda F23
+ * (offline/indexedDbClient.ts); acá solo la invocamos al hacer logout.
  */
 
 import { create } from 'zustand';
@@ -85,7 +88,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         error: null,
       });
     } catch {
-      // Token inválido/expirado → limpiar
+      // Token inválido/expirado (y el refresh de httpClient falló) → limpiar
       tokenStorage.clear();
       set({
         usuario: null,
@@ -145,7 +148,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   // ------------------------------------------------------------------
-  // Cambio de contraseña (usuario autenticado)
+  // Cambio de contraseña (usuario autenticado, POST /auth/cambiar-password)
   // ------------------------------------------------------------------
   cambiarPassword: async (payload) => {
     set({ isLoading: true, error: null });

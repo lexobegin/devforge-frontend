@@ -6,9 +6,15 @@
  * usa cuando el usuario está offline o como caché primaria.
  *
  * No habla con el backend: eso lo hace el `syncManager`.
+ *
+ * ⚠️ Modelo del backend CICLO 2: ClaseUML y RelacionUML viven EMBEBIDAS
+ * en el Diagrama y NO traen id_diagrama. Por eso los guardados sueltos
+ * reciben el `idDiagrama` por parámetro y lo estampan en el registro
+ * local (ClaseLocal/RelacionLocal).
  */
 
 import type { ClaseUML, DiagramaCompleto, RelacionUML } from '@/types';
+import type { Id } from '@/types/common';
 import {
   db,
   type ClaseLocal,
@@ -36,12 +42,12 @@ export const diagramaLocalRepo = {
   },
 
   async obtenerDiagrama(
-    diagramaId: number
+    diagramaId: Id
   ): Promise<DiagramaLocal | undefined> {
     return db.diagramas.get(diagramaId);
   },
 
-  async listarPorProyecto(proyectoId: number): Promise<DiagramaLocal[]> {
+  async listarPorProyecto(proyectoId: Id): Promise<DiagramaLocal[]> {
     return db.diagramas.where('id_proyecto').equals(proyectoId).toArray();
   },
 
@@ -58,13 +64,13 @@ export const diagramaLocalRepo = {
 
       const clases: ClaseLocal[] = diagrama.clases.map((c) => ({
         id: c.id,
-        id_diagrama: c.id_diagrama,
+        id_diagrama: diagrama.id, // embebida: el diagrama es la fuente
         data: c,
         local_updated_at: Date.now(),
       }));
       const relaciones: RelacionLocal[] = diagrama.relaciones.map((r) => ({
         id: r.id,
-        id_diagrama: r.id_diagrama,
+        id_diagrama: diagrama.id,
         data: r,
         local_updated_at: Date.now(),
       }));
@@ -75,7 +81,7 @@ export const diagramaLocalRepo = {
   },
 
   async obtenerDiagramaCompleto(
-    diagramaId: number
+    diagramaId: Id
   ): Promise<DiagramaCompleto | null> {
     const diagrama = await db.diagramas.get(diagramaId);
     if (!diagrama) return null;
@@ -107,33 +113,33 @@ export const diagramaLocalRepo = {
   // ==================================================================
   // CLASES
   // ==================================================================
-  async guardarClase(clase: ClaseUML): Promise<void> {
+  async guardarClase(idDiagrama: Id, clase: ClaseUML): Promise<void> {
     await db.clases.put({
       id: clase.id,
-      id_diagrama: clase.id_diagrama,
+      id_diagrama: idDiagrama,
       data: clase,
       local_updated_at: Date.now(),
     });
   },
 
-  async guardarClases(clases: ClaseUML[]): Promise<void> {
+  async guardarClases(idDiagrama: Id, clases: ClaseUML[]): Promise<void> {
     if (clases.length === 0) return;
     await db.clases.bulkPut(
       clases.map((c) => ({
         id: c.id,
-        id_diagrama: c.id_diagrama,
+        id_diagrama: idDiagrama,
         data: c,
         local_updated_at: Date.now(),
       }))
     );
   },
 
-  async obtenerClase(claseId: number): Promise<ClaseUML | undefined> {
+  async obtenerClase(claseId: Id): Promise<ClaseUML | undefined> {
     const local = await db.clases.get(claseId);
     return local?.data;
   },
 
-  async listarClases(diagramaId: number): Promise<ClaseUML[]> {
+  async listarClases(diagramaId: Id): Promise<ClaseUML[]> {
     const items = await db.clases
       .where('id_diagrama')
       .equals(diagramaId)
@@ -141,35 +147,38 @@ export const diagramaLocalRepo = {
     return items.map((c) => c.data);
   },
 
-  async eliminarClase(claseId: number): Promise<void> {
+  async eliminarClase(claseId: Id): Promise<void> {
     await db.clases.delete(claseId);
   },
 
   // ==================================================================
   // RELACIONES
   // ==================================================================
-  async guardarRelacion(relacion: RelacionUML): Promise<void> {
+  async guardarRelacion(idDiagrama: Id, relacion: RelacionUML): Promise<void> {
     await db.relaciones.put({
       id: relacion.id,
-      id_diagrama: relacion.id_diagrama,
+      id_diagrama: idDiagrama,
       data: relacion,
       local_updated_at: Date.now(),
     });
   },
 
-  async guardarRelaciones(relaciones: RelacionUML[]): Promise<void> {
+  async guardarRelaciones(
+    idDiagrama: Id,
+    relaciones: RelacionUML[]
+  ): Promise<void> {
     if (relaciones.length === 0) return;
     await db.relaciones.bulkPut(
       relaciones.map((r) => ({
         id: r.id,
-        id_diagrama: r.id_diagrama,
+        id_diagrama: idDiagrama,
         data: r,
         local_updated_at: Date.now(),
       }))
     );
   },
 
-  async listarRelaciones(diagramaId: number): Promise<RelacionUML[]> {
+  async listarRelaciones(diagramaId: Id): Promise<RelacionUML[]> {
     const items = await db.relaciones
       .where('id_diagrama')
       .equals(diagramaId)
@@ -177,7 +186,7 @@ export const diagramaLocalRepo = {
     return items.map((r) => r.data);
   },
 
-  async eliminarRelacion(relacionId: number): Promise<void> {
+  async eliminarRelacion(relacionId: Id): Promise<void> {
     await db.relaciones.delete(relacionId);
   },
 };

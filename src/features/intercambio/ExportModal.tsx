@@ -4,6 +4,18 @@
  *
  * Envía la petición al backend, obtiene la URL de descarga y muestra un
  * enlace + botón para descargar directamente.
+ *
+ * Contrato (app/api/v1/intercambio_router.py + intercambio_schema.py,
+ * Ciclo 2):
+ * - POST /diagramas/{id}/exportar?formato=XMI|XML|EA → ExportacionResultado
+ *   { exportacion, download_url } (el formato viaja como query param).
+ * - `download_url` apunta al EXPORT_DIR estático que sirve nginx
+ *   (fuera de /api/v1, sin JWT): por eso el <a href download> funciona.
+ *   La alternativa autenticada es intercambioApi.descargarArchivo()
+ *   (GET /intercambio/descargas/{ruta}, que exige JWT por header).
+ * - Formatos válidos: XMI | XML | EA (round-trip con Enterprise
+ *   Architect); el backend valida case-insensitive.
+ * - `diagramaId` es ObjectId hex (string), no number.
  */
 
 import { useState } from 'react';
@@ -11,6 +23,7 @@ import { useState } from 'react';
 import Button from '@/components/Button';
 import Modal from '@/components/Modal';
 import { intercambioApi, type FormatoIntercambio } from '@/api';
+import type { Id } from '@/types';
 import { toast } from '@/store';
 
 // ======================================================================
@@ -19,7 +32,8 @@ import { toast } from '@/store';
 interface ExportModalProps {
   open: boolean;
   onClose: () => void;
-  diagramaId: number;
+  /** ObjectId hex del diagrama (string, Ciclo 2). */
+  diagramaId: Id;
 }
 
 // ======================================================================

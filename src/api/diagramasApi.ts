@@ -2,9 +2,15 @@
 /**
  * Endpoints del módulo de diagramas UML (clases, atributos, operaciones,
  * parámetros, interfaces, relaciones).
- * Corresponde a `app/api/v1/diagramas_router.py` del backend.
+ * Corresponde a `app/api/v1/diagramas_router.py` del backend Ciclo 2.
  *
  * Es el cliente más extenso porque cubre todas las operaciones del editor.
+ *
+ * Convención de ids (Ciclo 2, todo embebido):
+ * - `diagramaId` / `proyectoId`: ObjectId hex del documento (string).
+ * - `claseId` / `atributoId` / `operacionId` / `parametroId` /
+ *   `interfazId` / `operacionInterfazId` / `relacionId`: uuid str del
+ *   elemento embebido (los mismos que pinta el lienzo).
  */
 
 import { http } from './httpClient';
@@ -19,6 +25,7 @@ import type {
   DiagramaCompleto,
   DiagramaCreate,
   DiagramaUpdate,
+  Id,
   InterfazUML,
   InterfazUMLCreate,
   InterfazUMLUpdate,
@@ -41,71 +48,77 @@ export const diagramasApi = {
   // DIAGRAMAS
   // ====================================================================
   /** Lista los diagramas de un proyecto. */
-  listarPorProyecto(proyectoId: number): Promise<Diagrama[]> {
+  listarPorProyecto(proyectoId: Id): Promise<Diagrama[]> {
     return http.get<Diagrama[]>(`/diagramas/proyecto/${proyectoId}`);
   },
 
   /** Crea un diagrama dentro de un proyecto. */
-  crear(proyectoId: number, payload: DiagramaCreate): Promise<Diagrama> {
+  crear(proyectoId: Id, payload: DiagramaCreate): Promise<Diagrama> {
     return http.post<Diagrama>(`/diagramas/proyecto/${proyectoId}`, payload);
   },
 
   /** Obtiene la metadata de un diagrama. */
-  obtener(id: number): Promise<Diagrama> {
+  obtener(id: Id): Promise<Diagrama> {
     return http.get<Diagrama>(`/diagramas/${id}`);
   },
 
   /**
-   * Obtiene el diagrama completo: clases (con atributos y operaciones),
-   * interfaces y relaciones. Payload que consume el editor.
+   * Obtiene el diagrama completo: clases (con atributos, operaciones y
+   * parámetros), interfaces (con sus operaciones) y relaciones. Payload
+   * que consume el editor.
    */
-  obtenerCompleto(id: number): Promise<DiagramaCompleto> {
+  obtenerCompleto(id: Id): Promise<DiagramaCompleto> {
     return http.get<DiagramaCompleto>(`/diagramas/${id}/completo`);
   },
 
-  /** Actualiza la metadata del diagrama. */
-  actualizar(id: number, payload: DiagramaUpdate): Promise<Diagrama> {
+  /** Actualiza la metadata del diagrama (nombre, version_uml). */
+  actualizar(id: Id, payload: DiagramaUpdate): Promise<Diagrama> {
     return http.put<Diagrama>(`/diagramas/${id}`, payload);
   },
 
   /** Elimina el diagrama y todo su contenido en cascada. */
-  eliminar(id: number): Promise<void> {
+  eliminar(id: Id): Promise<void> {
     return http.delete<void>(`/diagramas/${id}`);
   },
 
   // ====================================================================
   // CLASES
   // ====================================================================
-  listarClases(diagramaId: number): Promise<ClaseUML[]> {
+  /** Lista las clases del diagrama. */
+  listarClases(diagramaId: Id): Promise<ClaseUML[]> {
     return http.get<ClaseUML[]>(`/diagramas/${diagramaId}/clases`);
   },
 
   /** Crea una clase (puede incluir atributos y operaciones anidados). */
-  crearClase(diagramaId: number, payload: ClaseUMLCreate): Promise<ClaseUML> {
+  crearClase(diagramaId: Id, payload: ClaseUMLCreate): Promise<ClaseUML> {
     return http.post<ClaseUML>(`/diagramas/${diagramaId}/clases`, payload);
   },
 
-  obtenerClase(claseId: number): Promise<ClaseUML> {
+  /** Obtiene una clase con sus atributos y operaciones. */
+  obtenerClase(claseId: Id): Promise<ClaseUML> {
     return http.get<ClaseUML>(`/diagramas/clases/${claseId}`);
   },
 
-  actualizarClase(claseId: number, payload: ClaseUMLUpdate): Promise<ClaseUML> {
+  actualizarClase(claseId: Id, payload: ClaseUMLUpdate): Promise<ClaseUML> {
     return http.put<ClaseUML>(`/diagramas/clases/${claseId}`, payload);
   },
 
-  eliminarClase(claseId: number): Promise<void> {
+  /** Elimina la clase y sus relaciones asociadas. */
+  eliminarClase(claseId: Id): Promise<void> {
     return http.delete<void>(`/diagramas/clases/${claseId}`);
   },
 
   // ====================================================================
   // ATRIBUTOS
   // ====================================================================
-  listarAtributos(claseId: number): Promise<AtributoUML[]> {
+  /** Lista los atributos de una clase. */
+  listarAtributos(claseId: Id): Promise<AtributoUML[]> {
     return http.get<AtributoUML[]>(`/diagramas/clases/${claseId}/atributos`);
   },
 
+  /** Agrega un atributo a la clase. */
   agregarAtributo(
-    claseId: number,
+    claseId: Id,
     payload: AtributoUMLCreate
   ): Promise<AtributoUML> {
     return http.post<AtributoUML>(
@@ -115,7 +128,7 @@ export const diagramasApi = {
   },
 
   actualizarAtributo(
-    atributoId: number,
+    atributoId: Id,
     payload: AtributoUMLUpdate
   ): Promise<AtributoUML> {
     return http.put<AtributoUML>(
@@ -124,21 +137,23 @@ export const diagramasApi = {
     );
   },
 
-  eliminarAtributo(atributoId: number): Promise<void> {
+  eliminarAtributo(atributoId: Id): Promise<void> {
     return http.delete<void>(`/diagramas/atributos/${atributoId}`);
   },
 
   // ====================================================================
   // OPERACIONES
   // ====================================================================
-  listarOperaciones(claseId: number): Promise<OperacionUML[]> {
+  /** Lista las operaciones de una clase. */
+  listarOperaciones(claseId: Id): Promise<OperacionUML[]> {
     return http.get<OperacionUML[]>(
       `/diagramas/clases/${claseId}/operaciones`
     );
   },
 
+  /** Agrega una operación (con parámetros anidados) a la clase. */
   agregarOperacion(
-    claseId: number,
+    claseId: Id,
     payload: OperacionUMLCreate
   ): Promise<OperacionUML> {
     return http.post<OperacionUML>(
@@ -148,7 +163,7 @@ export const diagramasApi = {
   },
 
   actualizarOperacion(
-    operacionId: number,
+    operacionId: Id,
     payload: OperacionUMLUpdate
   ): Promise<OperacionUML> {
     return http.put<OperacionUML>(
@@ -157,15 +172,17 @@ export const diagramasApi = {
     );
   },
 
-  eliminarOperacion(operacionId: number): Promise<void> {
+  /** Elimina la operación y sus parámetros. */
+  eliminarOperacion(operacionId: Id): Promise<void> {
     return http.delete<void>(`/diagramas/operaciones/${operacionId}`);
   },
 
   // ====================================================================
   // PARÁMETROS
   // ====================================================================
+  /** Agrega un parámetro a la operación. */
   agregarParametro(
-    operacionId: number,
+    operacionId: Id,
     payload: ParametroOperacionUMLCreate
   ): Promise<ParametroOperacionUML> {
     return http.post<ParametroOperacionUML>(
@@ -175,7 +192,7 @@ export const diagramasApi = {
   },
 
   actualizarParametro(
-    parametroId: number,
+    parametroId: Id,
     payload: ParametroOperacionUMLUpdate
   ): Promise<ParametroOperacionUML> {
     return http.put<ParametroOperacionUML>(
@@ -184,15 +201,16 @@ export const diagramasApi = {
     );
   },
 
-  eliminarParametro(parametroId: number): Promise<void> {
+  eliminarParametro(parametroId: Id): Promise<void> {
     return http.delete<void>(`/diagramas/parametros/${parametroId}`);
   },
 
   // ====================================================================
   // INTERFACES
   // ====================================================================
+  /** Crea una interfaz en el diagrama (con operaciones anidadas). */
   crearInterfaz(
-    diagramaId: number,
+    diagramaId: Id,
     payload: InterfazUMLCreate
   ): Promise<InterfazUML> {
     return http.post<InterfazUML>(
@@ -202,7 +220,7 @@ export const diagramasApi = {
   },
 
   actualizarInterfaz(
-    interfazId: number,
+    interfazId: Id,
     payload: InterfazUMLUpdate
   ): Promise<InterfazUML> {
     return http.put<InterfazUML>(
@@ -211,12 +229,13 @@ export const diagramasApi = {
     );
   },
 
-  eliminarInterfaz(interfazId: number): Promise<void> {
+  eliminarInterfaz(interfazId: Id): Promise<void> {
     return http.delete<void>(`/diagramas/interfaces/${interfazId}`);
   },
 
+  /** Agrega una operación a la interfaz. */
   agregarOperacionInterfaz(
-    interfazId: number,
+    interfazId: Id,
     payload: OperacionInterfazUMLCreate
   ): Promise<OperacionInterfazUML> {
     return http.post<OperacionInterfazUML>(
@@ -226,7 +245,7 @@ export const diagramasApi = {
   },
 
   actualizarOperacionInterfaz(
-    operacionId: number,
+    operacionId: Id,
     payload: OperacionInterfazUMLUpdate
   ): Promise<OperacionInterfazUML> {
     return http.put<OperacionInterfazUML>(
@@ -235,19 +254,24 @@ export const diagramasApi = {
     );
   },
 
-  eliminarOperacionInterfaz(operacionId: number): Promise<void> {
+  eliminarOperacionInterfaz(operacionId: Id): Promise<void> {
     return http.delete<void>(`/diagramas/operaciones-interfaz/${operacionId}`);
   },
 
   // ====================================================================
   // RELACIONES
   // ====================================================================
-  listarRelaciones(diagramaId: number): Promise<RelacionUML[]> {
+  /** Lista las relaciones del diagrama. */
+  listarRelaciones(diagramaId: Id): Promise<RelacionUML[]> {
     return http.get<RelacionUML[]>(`/diagramas/${diagramaId}/relaciones`);
   },
 
+  /**
+   * Crea una relación entre dos clases del MISMO diagrama. El backend
+   * rechaza duplicados del mismo tipo entre las mismas clases (409).
+   */
   crearRelacion(
-    diagramaId: number,
+    diagramaId: Id,
     payload: RelacionUMLCreate
   ): Promise<RelacionUML> {
     return http.post<RelacionUML>(
@@ -257,7 +281,7 @@ export const diagramasApi = {
   },
 
   actualizarRelacion(
-    relacionId: number,
+    relacionId: Id,
     payload: RelacionUMLUpdate
   ): Promise<RelacionUML> {
     return http.put<RelacionUML>(
@@ -266,7 +290,7 @@ export const diagramasApi = {
     );
   },
 
-  eliminarRelacion(relacionId: number): Promise<void> {
+  eliminarRelacion(relacionId: Id): Promise<void> {
     return http.delete<void>(`/diagramas/relaciones/${relacionId}`);
   },
 };

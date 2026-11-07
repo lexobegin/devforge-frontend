@@ -4,19 +4,34 @@
  *
  * Permite agregar, editar y eliminar operaciones. Los parámetros se
  * editan como texto simple `nombre: Tipo, nombre: Tipo` por simplicidad.
+ *
+ * CONTRATO CICLO 2 (todo embebido, ids uuid str):
+ * - Agregar    → POST /diagramas/clases/{clase_id}/operaciones
+ *                (OperacionUMLCreate acepta parametros anidados; la UI
+ *                los deja vacíos por ahora).
+ * - Actualizar → PUT /diagramas/operaciones/{operacion_id} (solo el id
+ *                de la operación, SIN clase_id — OperacionUMLUpdate no
+ *                toca parámetros: tienen sus propios endpoints).
+ * - Eliminar   → DELETE /diagramas/operaciones/{operacion_id} (cascada
+ *                con sus parámetros).
  */
 
 import { useState } from 'react';
 
 import Button from '@/components/Button';
 import { useDiagramaStore, toast } from '@/store';
-import type { OperacionUML, UmlVisibility } from '@/types';
+import type {
+  Id,
+  OperacionUML,
+  OperacionUMLUpdate,
+  UmlVisibility,
+} from '@/types';
 
 // ======================================================================
 // Tipos
 // ======================================================================
 interface OperationsEditorProps {
-  claseId: number;
+  claseId: Id;
   operaciones: OperacionUML[];
   disabled?: boolean;
 }
@@ -77,15 +92,21 @@ export function OperationsEditor({
   }
 
   // ------------------------------------------------------------------
-  // Actualizar
+  // Actualizar — PUT /operaciones/{id}, solo el id del embebido
   // ------------------------------------------------------------------
   async function handleActualizar(
-    opId: number,
+    operacionId: Id,
     campo: 'nombre' | 'tipo_retorno' | 'visibilidad',
     valor: string
   ) {
+    const payload: OperacionUMLUpdate =
+      campo === 'visibilidad'
+        ? { visibilidad: valor as UmlVisibility }
+        : campo === 'tipo_retorno'
+          ? { tipo_retorno: valor }
+          : { nombre: valor };
     try {
-      await actualizarOperacion(claseId, opId, { [campo]: valor });
+      await actualizarOperacion(operacionId, payload);
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : 'No se pudo actualizar'
@@ -94,12 +115,12 @@ export function OperationsEditor({
   }
 
   // ------------------------------------------------------------------
-  // Eliminar
+  // Eliminar — DELETE /operaciones/{id}
   // ------------------------------------------------------------------
   async function handleEliminar(op: OperacionUML) {
     if (!window.confirm(`¿Eliminar la operación "${op.nombre}"?`)) return;
     try {
-      await eliminarOperacion(claseId, op.id);
+      await eliminarOperacion(op.id);
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : 'No se pudo eliminar'
@@ -181,6 +202,7 @@ export function OperationsEditor({
               className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-xs text-surface-100 hover:border-surface-700 focus:border-brand-500 focus:outline-none"
             />
 
+            {/* Parámetros: edición fina por endpoints propios (pendiente) */}
             <span className="text-xs text-surface-500">():</span>
 
             <input

@@ -4,7 +4,9 @@
  * de cambios pendientes de sincronizar.
  *
  * Reacciona al evento `online`/`offline` del navegador y al contador de
- * la cola de sincronización.
+ * la cola de sincronización (`offline/syncQueue.ts`, Bloque F): ese
+ * módulo persiste la cola FIFO en IndexedDB (dexie) y expone
+ * contarPendientes() para el badge de la UI.
  */
 
 import { useEffect, useState } from 'react';
@@ -47,7 +49,7 @@ export function useOnlineStatus(): UseOnlineStatusReturn {
       const n = await syncQueue.contarPendientes();
       setPendientes(n);
     } catch {
-      // Ignorar errores de IndexedDB
+      // Ignorar errores de IndexedDB (p. ej. modo privado sin almacenamiento)
     }
   };
 

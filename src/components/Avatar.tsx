@@ -39,18 +39,31 @@ const SIZE_CLASSES: Record<AvatarSize, string> = {
 // Paleta (misma que en colaboracionStore)
 // ======================================================================
 const COLORES = [
-  '#f87171',
-  '#fb923c',
-  '#facc15',
-  '#4ade80',
-  '#22d3ee',
-  '#60a5fa',
-  '#a78bfa',
-  '#f472b6',
-];
+  '#f87171', // rojo
+  '#fb923c', // naranja
+  '#facc15', // amarillo
+  '#4ade80', // verde
+  '#22d3ee', // cian
+  '#60a5fa', // azul
+  '#a78bfa', // violeta
+  '#f472b6', // rosa
+] as const;
 
-function colorPorId(id: number): string {
-  return COLORES[Math.abs(id) % COLORES.length];
+/**
+ * Hash djb2 del id (string hex/uuid) → índice de la paleta.
+ *
+ * AJUSTE Ciclo 2: `Id` es string (ObjectId hex de MongoDB); un
+ * `id % 8` directo sobre el string daría NaN (los ids ya no son
+ * numéricos como en el Ciclo 1). Usamos el mismo hash djb2 que
+ * colaboracionStore, para que avatar y cursor de un colaborador
+ * compartan SIEMPRE el mismo color.
+ */
+function colorPorId(id: Id): string {
+  let hash = 5381;
+  for (let i = 0; i < id.length; i++) {
+    hash = ((hash << 5) + hash + id.charCodeAt(i)) | 0;
+  }
+  return COLORES[Math.abs(hash) % COLORES.length];
 }
 
 // ======================================================================

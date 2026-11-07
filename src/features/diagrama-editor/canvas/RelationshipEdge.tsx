@@ -10,6 +10,10 @@
  *   - DEPENDENCIA:   línea discontinua
  *   - GENERALIZACION: línea sólida + flecha triangular hueca
  *   - REALIZACION:   línea discontinua + flecha triangular hueca
+ *
+ * CONTRATO CICLO 2: `data.id` es el id de la RelacionUML EMBEBIDA del
+ * Diagrama — str uuid (Id = string), no int serial (el id del EDGE de
+ * React Flow es aparte y también string).
  */
 
 import {
@@ -20,13 +24,14 @@ import {
   type Edge,
 } from '@xyflow/react';
 
-import type { TipoRelacion } from '@/types';
+import type { Id, TipoRelacion } from '@/types';
 
 // ======================================================================
 // Datos del edge
 // ======================================================================
 export interface RelationshipEdgeData extends Record<string, unknown> {
-  id: number;
+  /** Id (uuid) de la RelacionUML embebida del diagrama. */
+  id: Id;
   tipo: TipoRelacion;
   multiplicidad_origen?: string | null;
   multiplicidad_destino?: string | null;

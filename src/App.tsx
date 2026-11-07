@@ -16,13 +16,8 @@ export default function App() {
   const isBootstrapping = useAuthStore((s) => s.isBootstrapping);
   const bootstrap = useAuthStore((s) => s.bootstrap);
 
-  // quitar
-  console.log('[App] RENDER isBootstrapping=', isBootstrapping, 'bootstrap=', bootstrap);
-
   // Boot: intenta restaurar sesión desde el token guardado
   useEffect(() => {
-    // quitar
-    console.log('[App] bootstrap() llamado');
     void bootstrap();
   }, [bootstrap]);
 

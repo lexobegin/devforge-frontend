@@ -5,6 +5,18 @@
  * El backend hace MERGE por nombre: las clases existentes se saltan,
  * las nuevas se agregan. Al terminar, se recarga el diagrama para
  * reflejar los cambios.
+ *
+ * Contrato (app/api/v1/intercambio_router.py + intercambio_schema.py,
+ * Ciclo 2):
+ * - POST /diagramas/{id}/importar (multipart: campo `archivo` + campo
+ *   `formato`) → 201 con ImportacionResultado { importacion, resumen }.
+ * - `resumen` es dict[str, Any]: la mayoría son conteos (clases,
+ *   atributos, relaciones…) pero puede traer listas de advertencias del
+ *   conversor — por eso se tipa Record<string, unknown> y los valores se
+ *   formatean de forma defensiva.
+ * - El backend valida la extensión (.xmi/.xml) y el tamaño
+ *   (settings.MAX_UPLOAD_SIZE_MB); el frontend pre-valida la extensión.
+ * - `diagramaId` es ObjectId hex (string), no number.
  */
 
 import { useCallback, useRef, useState } from 'react';
@@ -12,6 +24,7 @@ import { useCallback, useRef, useState } from 'react';
 import Button from '@/components/Button';
 import Modal from '@/components/Modal';
 import { intercambioApi, type FormatoIntercambio } from '@/api';
+import type { Id } from '@/types';
 import { useDiagramaStore, toast } from '@/store';
 
 // ======================================================================
@@ -20,12 +33,12 @@ import { useDiagramaStore, toast } from '@/store';
 interface ImportModalProps {
   open: boolean;
   onClose: () => void;
-  diagramaId: number;
+  /** ObjectId hex del diagrama (string, Ciclo 2). */
+  diagramaId: Id;
 }
 
-interface ResultadoResumen {
-  [key: string]: number;
-}
+/** ImportacionResultado.resumen == dict[str, Any] del backend. */
+type ResultadoResumen = Record<string, unknown>;
 
 // ======================================================================
 // Componente
@@ -214,9 +227,11 @@ export function ImportModal({ open, onClose, diagramaId }: ImportModalProps) {
             </p>
             <ul className="mt-2 space-y-1 text-xs text-surface-300">
               {Object.entries(resumen).map(([k, v]) => (
-                <li key={k} className="flex justify-between">
+                <li key={k} className="flex justify-between gap-3">
                   <span className="capitalize">{k.replace(/_/g, ' ')}</span>
-                  <span className="font-medium text-surface-100">{v}</span>
+                  <span className="break-all text-right font-medium text-surface-100">
+                    {formatearValor(v)}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -225,6 +240,25 @@ export function ImportModal({ open, onClose, diagramaId }: ImportModalProps) {
       </div>
     </Modal>
   );
+}
+
+// ======================================================================
+// Helper
+// ======================================================================
+/**
+ * El resumen del backend es dict[str, Any]: conteos numéricos pero
+ * también listas de advertencias del conversor (no todo es número).
+ */
+function formatearValor(valor: unknown): string {
+  if (typeof valor === 'string') return valor;
+  if (typeof valor === 'number' || typeof valor === 'boolean') {
+    return String(valor);
+  }
+  try {
+    return JSON.stringify(valor);
+  } catch {
+    return String(valor);
+  }
 }
 
 export default ImportModal;

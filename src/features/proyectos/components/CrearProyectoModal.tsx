@@ -4,18 +4,24 @@
  *
  * Muestra inputs de nombre y descripción. Al crear, agrega el proyecto
  * al store y cierra el modal.
+ *
+ * Contrato Ciclo 2: ProyectoCreate = { nombre, descripcion? } (nombre
+ * 1-150, descripción max 2000, igual que los maxLength del formulario);
+ * el id devuelto es string hex (Id).
  */
 
-import { FormEvent, useState } from 'react';
+import { useState, type FormEvent } from 'react';
 
 import Button from '@/components/Button';
 import Modal from '@/components/Modal';
+import type { Id } from '@/types';
 import { useProyectoStore, toast } from '@/store';
 
 interface CrearProyectoModalProps {
   open: boolean;
   onClose: () => void;
-  onCreado?: (id: number) => void;
+  /** Id (string hex) del proyecto recién creado. */
+  onCreado?: (id: Id) => void;
 }
 
 export function CrearProyectoModal({

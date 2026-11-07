@@ -3,6 +3,8 @@
  * Página completa de notificaciones.
  *
  * Lista todas las notificaciones del usuario con filtros y acciones.
+ * Ruta /notificaciones (AppRouter F30), con polling desactivado porque
+ * la carga es explícita (el badge en vivo vive en el Navbar/dropdown).
  */
 
 import { useState } from 'react';

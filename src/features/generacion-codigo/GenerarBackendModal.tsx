@@ -5,6 +5,18 @@
  * - Muestra el stack destino (Spring Boot + JPA + PostgreSQL).
  * - Opciones avanzadas: incluir Postman, nombre del proyecto, package base.
  * - Al disparar, redirige a la página de estado con el id del trabajo.
+ *
+ * Contrato (app/api/v1/generacion_router.py + generacion_schema.py,
+ * Ciclo 2):
+ * - POST /diagramas/{id}/generar con GenerarBackendRequest
+ *   { stack_destino?, incluir_postman?, nombre_proyecto?, package_base? }.
+ * - ⚠️ CAMBIO CICLO 2: SIN BackgroundTasks — el pipeline completo corre
+ *   en la llamada y el POST responde 200 con el trabajo (estado
+ *   EXITOSO, o lanza el error de dominio). NO es 202 + polling; la
+ *   pantalla de estado (/generacion/:id) queda para ver el resultado y
+ *   descargar el ZIP.
+ * - `trabajo.id` es ObjectId hex (string) → se usa directo en la ruta.
+ * - `diagramaId` es ObjectId hex (string), no number.
  */
 
 import { FormEvent, useState } from 'react';
@@ -14,7 +26,7 @@ import Button from '@/components/Button';
 import Modal from '@/components/Modal';
 import { generacionApi } from '@/api';
 import { toast } from '@/store';
-import type { GenerarBackendRequest } from '@/types';
+import type { GenerarBackendRequest, Id } from '@/types';
 
 // ======================================================================
 // Tipos
@@ -22,7 +34,8 @@ import type { GenerarBackendRequest } from '@/types';
 interface GenerarBackendModalProps {
   open: boolean;
   onClose: () => void;
-  diagramaId: number;
+  /** ObjectId hex del diagrama (string, Ciclo 2). */
+  diagramaId: Id;
 }
 
 // ======================================================================
@@ -64,7 +77,7 @@ export function GenerarBackendModal({
       };
 
       const trabajo = await generacionApi.generar(diagramaId, payload);
-      toast.success('Generación iniciada');
+      toast.success('Generación completada');
       onClose();
       navigate(`/generacion/${trabajo.id}`);
     } catch (err) {
@@ -199,8 +212,8 @@ export function GenerarBackendModal({
         </div>
 
         <p className="text-xs text-surface-500">
-          El proyecto se generará en segundo plano. Vas a poder seguir el
-          progreso en la siguiente pantalla.
+          La generación corre completa en la llamada (Ciclo 2): al terminar
+          se abre la pantalla del trabajo, desde donde descargás el ZIP.
         </p>
       </form>
     </Modal>

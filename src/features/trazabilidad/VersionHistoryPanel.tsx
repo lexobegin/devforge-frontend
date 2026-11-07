@@ -2,9 +2,19 @@
 /**
  * Panel de historial de versiones del diagrama.
  *
- * - Lista las versiones guardadas (metadata: número, fecha, autor, comentario).
+ * - Lista las versiones guardadas (metadata: número, fecha, comentario).
  * - Permite guardar una versión nueva (snapshot completo).
  * - Permite abrir una versión anterior para ver su contenido.
+ *
+ * Contrato (app/api/v1/trazabilidad_router.py + trazabilidad_schema.py,
+ * Ciclo 2):
+ * - GET /diagramas/{id}/versiones → VersionDiagramaResumen[] (LISTA PLANA,
+ *   no paginada; sin contenido_json que puede pesar megas — el detalle
+ *   completo se pide versión por versión con GET /versiones/{version_id}).
+ * - POST /diagramas/{id}/versiones → 201 con { contenido_json,
+ *   comentario? }; el `numero_version` lo calcula el service (correlativo
+ *   con índice único) y NO viaja desde el cliente.
+ * - Todos los ids son string hex (PydanticObjectId), no number.
  *
  * El contenido_json puede ser grande; se carga solo bajo demanda.
  */
@@ -13,14 +23,20 @@ import { useCallback, useEffect, useState } from 'react';
 
 import Button from '@/components/Button';
 import Modal from '@/components/Modal';
-import { trazabilidadApi, type VersionDiagrama, type VersionDiagramaResumen } from '@/api';
+import {
+  trazabilidadApi,
+  type VersionDiagrama,
+  type VersionDiagramaResumen,
+} from '@/api';
+import type { Id } from '@/types';
 import { useDiagramaStore, toast } from '@/store';
 
 // ======================================================================
 // Tipos
 // ======================================================================
 interface VersionHistoryPanelProps {
-  diagramaId: number;
+  /** ObjectId hex del diagrama (string, Ciclo 2). */
+  diagramaId: Id;
   disabled?: boolean;
 }
 
@@ -97,7 +113,7 @@ export function VersionHistoryPanel({
   // ------------------------------------------------------------------
   // Ver detalle
   // ------------------------------------------------------------------
-  const handleVerDetalle = async (versionId: number) => {
+  const handleVerDetalle = async (versionId: Id) => {
     try {
       const v = await trazabilidadApi.obtenerVersion(versionId);
       setVersionDetalle(v);
