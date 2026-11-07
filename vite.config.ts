@@ -13,7 +13,8 @@ export default defineConfig({
       // Estrategia: cachear assets de la app para que cargue offline (PWA).
       // Los requests HTTP a la API se manejan desde IndexedDB + syncQueue,
       // no desde el SW (evitamos cachear respuestas que pueden quedar stale).
-      includeAssets: ['favicon.ico', 'robots.txt', 'apple-touch-icon.png'],
+      // AJUSTE Tanda F1: includeAssets apunta a favicon.svg (el .ico no existe en public/).
+      includeAssets: ['favicon.svg', 'robots.txt', 'apple-touch-icon.png'],
       manifest: {
         name: 'DevForge AI',
         short_name: 'DevForge',

@@ -1,22 +1,36 @@
 // src/features/generacion-codigo/DescargarProyectoButton.tsx
 /**
- * Botón de descarga del backend generado.
+ * Botón de descarga del backend generado (ZIP).
  *
- * Pide la URL de descarga al backend y hace la descarga con el nombre
- * correcto. Muestra el tamaño del ZIP si está disponible.
+ * Muestra el tamaño del ZIP si está disponible y hace la descarga como
+ * blob para forzar el nombre del archivo.
+ *
+ * Contrato (app/api/v1/generacion_router.py, Ciclo 2):
+ * - GET /generacion/trabajos/{id}/archivo → FileResponse (streaming del
+ *   ZIP) y EXIGE JWT (get_current_active_user): la descarga va por
+ *   `generacionApi.descargarArchivo()` (httpClient adjunta el
+ *   Authorization automáticamente) — nunca window.open ni <a href>,
+ *   que no enviarían el header.
+ * - El backend valida trabajo EXITOSO + pertenencia antes de servir el
+ *   archivo; si no, responde 404 (genérico, no revela trabajos ajenos).
+ * - El tamaño opcional viene de GET /trabajos/{id}/descargar
+ *   (DescargaProyecto.tamanio_bytes) — lo pasa la página de estado.
+ * - `trabajoId` es ObjectId hex (string), no number.
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useState } from 'react';
 
-import Button from "@/components/Button";
-import { httpClient } from "@/api";
-import { toast } from "@/store";
+import Button from '@/components/Button';
+import { generacionApi } from '@/api';
+import type { Id } from '@/types';
+import { toast } from '@/store';
 
 // ======================================================================
 // Tipos
 // ======================================================================
 interface DescargarProyectoButtonProps {
-  trabajoId: number;
+  /** ObjectId hex del trabajo (string, Ciclo 2). */
+  trabajoId: Id;
   /** Tamaño del ZIP en bytes (si se conoce). */
   tamanioBytes?: number | null;
   /** Si el trabajo no está EXITOSO, el botón se deshabilita. */
@@ -34,22 +48,13 @@ export function DescargarProyectoButton({
   const [descargando, setDescargando] = useState(false);
 
   const handleDescargar = useCallback(async () => {
-    /*if (descargando) return;
+    if (descargando) return;
     setDescargando(true);
     try {
-      // El backend expone un endpoint que sirve el archivo directamente.
-      // Usamos una descarga por fetch + blob para poder manejar el nombre.
-      const url = generacionApi.buildArchivoUrl(trabajoId);
-      const response = await fetch(url, {
-        // Incluye cookies/headers si hiciera falta (no en este caso)
-        credentials: 'omit',
-      });
+      // generacionApi.descargarArchivo usa httpClient (Authorization
+      // automático) con responseType 'blob' — crítico: descarga binaria.
+      const blob = await generacionApi.descargarArchivo(trabajoId);
 
-      if (!response.ok) {
-        throw new Error('No se pudo descargar el archivo');
-      }
-
-      const blob = await response.blob();
       const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = downloadUrl;
@@ -64,33 +69,6 @@ export function DescargarProyectoButton({
       toast.error(
         err instanceof Error ? err.message : 'No se pudo descargar'
       );
-    } finally {
-      setDescargando(false);
-    }
-  }, [trabajoId, descargando]);*/
-    if (descargando) return;
-    setDescargando(true);
-    try {
-      // ✅ httpClient añade el Authorization automáticamente
-      const url = `/generacion/trabajos/${trabajoId}/archivo`;
-      const response = await httpClient.get(url, {
-        responseType: "blob", // ← CRÍTICO: descarga binaria
-      });
-
-      // El nombre viene del Content-Disposition del backend, o lo forzamos
-      const blob = response.data as Blob;
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = downloadUrl;
-      a.download = `devforge-backend-${trabajoId}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(downloadUrl);
-
-      toast.success("Descarga iniciada");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "No se pudo descargar");
     } finally {
       setDescargando(false);
     }
@@ -121,10 +99,10 @@ export function DescargarProyectoButton({
       }
     >
       {descargando
-        ? "Descargando…"
+        ? 'Descargando…'
         : tamanioBytes
           ? `Descargar ZIP (${formatBytes(tamanioBytes)})`
-          : "Descargar ZIP"}
+          : 'Descargar ZIP'}
     </Button>
   );
 }

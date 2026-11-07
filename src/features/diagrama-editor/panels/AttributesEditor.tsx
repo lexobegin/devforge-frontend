@@ -3,24 +3,33 @@
  * Editor de atributos de una clase UML.
  *
  * Lista los atributos existentes y permite:
- * - Editar nombre, tipo, visibilidad, valor por defecto (inline).
+ * - Editar nombre, tipo, visibilidad (inline).
  * - Agregar un nuevo atributo.
  * - Eliminar un atributo.
  *
- * Todos los cambios persisten vía diagramaStore.
+ * CONTRATO CICLO 2 (todo embebido, ids uuid str):
+ * - Agregar    → POST /diagramas/clases/{clase_id}/atributos
+ *                (por eso acá SÍ se necesita claseId).
+ * - Actualizar → PUT  /diagramas/atributos/{atributo_id}  (solo el id
+ *                del atributo, SIN clase_id — el store lo firma así).
+ * - Eliminar   → DELETE /diagramas/atributos/{atributo_id} (ídem).
+ *
+ * El payload de actualización se arma campo por campo: AtributoUMLUpdate
+ * es un esquema tipado (sin index signature) y visibilidad se castea a
+ * UmlVisibility ('+' | '-' | '#' | '~').
  */
 
 import { useState } from 'react';
 
 import Button from '@/components/Button';
 import { useDiagramaStore, toast } from '@/store';
-import type { AtributoUML, UmlVisibility } from '@/types';
+import type { AtributoUML, AtributoUMLUpdate, Id, UmlVisibility } from '@/types';
 
 // ======================================================================
 // Tipos
 // ======================================================================
 interface AttributesEditorProps {
-  claseId: number;
+  claseId: Id;
   atributos: AtributoUML[];
   disabled?: boolean;
 }
@@ -85,15 +94,21 @@ export function AttributesEditor({
   }
 
   // ------------------------------------------------------------------
-  // Actualizar (inline)
+  // Actualizar (inline) — PUT /atributos/{id}, solo el id del embebido
   // ------------------------------------------------------------------
   async function handleActualizar(
-    atributoId: number,
+    atributoId: Id,
     campo: 'nombre' | 'tipo_dato' | 'visibilidad',
     valor: string
   ) {
+    const payload: AtributoUMLUpdate =
+      campo === 'visibilidad'
+        ? { visibilidad: valor as UmlVisibility }
+        : campo === 'tipo_dato'
+          ? { tipo_dato: valor }
+          : { nombre: valor };
     try {
-      await actualizarAtributo(claseId, atributoId, { [campo]: valor });
+      await actualizarAtributo(atributoId, payload);
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : 'No se pudo actualizar'
@@ -102,12 +117,12 @@ export function AttributesEditor({
   }
 
   // ------------------------------------------------------------------
-  // Eliminar
+  // Eliminar — DELETE /atributos/{id}
   // ------------------------------------------------------------------
   async function handleEliminar(atributo: AtributoUML) {
     if (!window.confirm(`¿Eliminar el atributo "${atributo.nombre}"?`)) return;
     try {
-      await eliminarAtributo(claseId, atributo.id);
+      await eliminarAtributo(atributo.id);
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : 'No se pudo eliminar'

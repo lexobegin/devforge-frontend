@@ -9,6 +9,7 @@
  * con rol ADMIN de la plataforma.
  */
 
+import type { ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
 
 import { useAuthStore, useUIStore } from '@/store';
@@ -19,7 +20,7 @@ import { useAuthStore, useUIStore } from '@/store';
 interface NavItem {
   to: string;
   label: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   /** Solo visible para ADMIN de la plataforma. */
   soloAdmin?: boolean;
 }

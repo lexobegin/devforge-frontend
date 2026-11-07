@@ -4,7 +4,8 @@
  *
  * - Logo DevForge AI.
  * - Botón hamburguesa para colapsar el sidebar.
- * - Notificaciones (placeholder — se conecta en Fase 12).
+ * - Indicadores offline / cambios pendientes de sync (useOnlineStatus).
+ * - Notificaciones (placeholder — se conecta en Fase 12 / tanda F37).
  * - Menú de usuario (perfil, logout).
  */
 
@@ -15,6 +16,7 @@ import Avatar from '@/components/Avatar';
 import { useAuthStore, useUIStore } from '@/store';
 
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
+import { NotificacionesDropdown } from '@/features/notificaciones/NotificacionesDropdown'; 
 
 export function Navbar() {
   const usuario = useAuthStore((s) => s.usuario);
@@ -69,27 +71,28 @@ export function Navbar() {
         </Link>
       </div>
 
-      {/* --- // En la parte derecha (antes del botón de notificaciones):--- */}
-{!online && (
-  <span className="flex items-center gap-1 rounded-md bg-warning/10 px-2 py-1 text-xs font-medium text-warning">
-    <span className="h-1.5 w-1.5 rounded-full bg-warning" />
-    Offline
-  </span>
-)}
-{online && pendientes > 0 && (
-  <span
-    className="flex items-center gap-1 rounded-md bg-brand-600/10 px-2 py-1 text-xs font-medium text-brand-300"
-    title="Cambios pendientes de sincronizar"
-  >
-    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-400" />
-    {pendientes} pendiente{pendientes > 1 ? 's' : ''}
-  </span>
-)}
+      {/* --- Centro: indicadores offline / pendientes de sync --- */}
+      {!online && (
+        <span className="flex items-center gap-1 rounded-md bg-warning/10 px-2 py-1 text-xs font-medium text-warning">
+          <span className="h-1.5 w-1.5 rounded-full bg-warning" />
+          Offline
+        </span>
+      )}
+      {online && pendientes > 0 && (
+        <span
+          className="flex items-center gap-1 rounded-md bg-brand-600/10 px-2 py-1 text-xs font-medium text-brand-300"
+          title="Cambios pendientes de sincronizar"
+        >
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-400" />
+          {pendientes} pendiente{pendientes > 1 ? 's' : ''}
+        </span>
+      )}
 
       {/* --- Derecha: notificaciones + usuario --- */}
       <div className="flex items-center gap-2">
         {/* Notificaciones (placeholder — Fase 12) */}
         {/* <NotificacionesDropdown /> */}
+        <NotificacionesDropdown />
 
         {/* Menú de usuario */}
         {usuario && (

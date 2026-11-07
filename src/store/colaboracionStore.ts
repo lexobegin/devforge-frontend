@@ -5,6 +5,10 @@
  * Mantiene el estado de los colaboradores conectados al diagrama actual
  * y la posición de sus cursores en el lienzo. Se actualiza exclusivamente
  * desde los eventos WebSocket (nunca hace requests HTTP propios).
+ *
+ * Soporte REST (sesiones, participantes, cursor por HTTP) vive en
+ * `api/colaboracionApi.ts` (F20); el hook del socket (F22) es quien
+ * registra los emisores con `setEmisores`.
  */
 
 import { create } from 'zustand';
@@ -25,6 +29,13 @@ export interface ColaboradorConectado {
   seleccion?: { tipo: string; id: Id } | null;
 }
 
+/** Emisores que el hook del WS registra para enviar eventos al backend. */
+export interface EmisoresColaboracion {
+  cursor: ((x: number, y: number) => void) | null;
+  seleccion: ((tipo: string, id: Id) => void) | null;
+  evento: ((type: string, payload: Record<string, unknown>) => void) | null;
+}
+
 interface ColaboracionState {
   // --- Estado ---
   conectados: ColaboradorConectado[];
@@ -32,15 +43,9 @@ interface ColaboracionState {
   /** Mi propio id de usuario (para excluirme de la lista). */
   miUsuarioId: Id | null;
 
-      /** Emisores registrados por el hook del WS. */
-  emisores: {
-    cursor: ((x: number, y: number) => void) | null;
-    seleccion: ((tipo: string, id: number) => void) | null;
-    evento: ((type: string, payload: Record<string, unknown>) => void) | null;
-  };
-  setEmisores: (
-    e: Partial<ColaboracionState['emisores']>
-  ) => void;
+  /** Emisores registrados por el hook del WS. */
+  emisores: EmisoresColaboracion;
+  setEmisores: (e: Partial<EmisoresColaboracion>) => void;
 
   // --- Acciones (invocadas desde el WS) ---
   setMiUsuarioId: (id: Id | null) => void;
@@ -54,8 +59,6 @@ interface ColaboracionState {
   ) => void;
   setConnected: (connected: boolean) => void;
   limpiar: () => void;
-
-
 }
 
 // ======================================================================
@@ -72,8 +75,20 @@ const COLORES = [
   '#f472b6', // pink
 ];
 
+/**
+ * Hash estable de un id (string) a entero positivo. Los ids del Ciclo 2
+ * son hex/uuid, no números: no se puede usar Math.abs(id) directo.
+ */
+function hashId(id: Id): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) {
+    h = (h * 31 + id.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h);
+}
+
 function colorPorId(id: Id): string {
-  return COLORES[Math.abs(id) % COLORES.length];
+  return COLORES[hashId(id) % COLORES.length];
 }
 
 // ======================================================================
@@ -85,10 +100,10 @@ export const useColaboracionStore = create<ColaboracionState>((set) => ({
   miUsuarioId: null,
   emisores: { cursor: null, seleccion: null, evento: null },
 
-setEmisores: (nuevos) =>
-  set((state) => ({
-    emisores: { ...state.emisores, ...nuevos },
-  })),
+  setEmisores: (nuevos) =>
+    set((state) => ({
+      emisores: { ...state.emisores, ...nuevos },
+    })),
 
   setMiUsuarioId: (id) => set({ miUsuarioId: id }),
 

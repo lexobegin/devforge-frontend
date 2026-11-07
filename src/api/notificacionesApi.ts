@@ -1,15 +1,24 @@
 // src/api/notificacionesApi.ts
 /**
  * Endpoints del módulo de notificaciones.
- * Corresponde a `app/api/v1/notificaciones_router.py` del backend.
+ * Corresponde a `app/api/v1/notificaciones_router.py` del backend Ciclo 2.
+ *
+ * Rutas estáticas (/contador, /marcar-leidas, /leidas) ANTES de las
+ * dinámicas /{id} en el backend (igual que el Ciclo 1).
+ *
+ * Cambios Ciclo 2: ids de ruta PydanticObjectId (string hex en JSON);
+ * `id_referencia` es Optional[str] (str(id) de un Document o id uuid de
+ * un elemento embebido, según `tipo`) — ya no BIGINT polimórfico.
  */
 
 import { http } from './httpClient';
 import type { Id, ISODateString } from '@/types';
 
 // ======================================================================
-// Tipos locales
+// Tipos locales (app/schemas/notificacion_schema.py)
 // ======================================================================
+
+/** Los 8 tipos del Literal del schema (entrada del cliente validada). */
 export type TipoNotificacion =
   | 'COMENTARIO'
   | 'CAMBIO_DIAGRAMA'
@@ -20,22 +29,30 @@ export type TipoNotificacion =
   | 'VERSION_GUARDADA'
   | 'SISTEMA';
 
+/** NotificacionResponse: mensaje (1-255) + referencia polimórfica. */
 export interface Notificacion {
   id: Id;
   id_usuario: Id;
   tipo: TipoNotificacion;
   mensaje: string;
+  /** id del recurso relacionado (diagrama, comentario, trabajo…):
+   *  str(id) de un Document o uuid de un elemento embebido, según tipo. */
   id_referencia: Id | null;
   leida: boolean;
   created_at: ISODateString;
 }
 
+/** Contador liviano para el badge del dropdown de notificaciones. */
 export interface ContadorNoLeidas {
   total_no_leidas: number;
 }
 
+/**
+ * Marca como leídas varias notificaciones a la vez.
+ * Si `ids` viene vacío y `todas=true`, marca todas las del usuario.
+ */
 export interface MarcarLeidasRequest {
-  ids?: number[];
+  ids?: Id[];
   todas?: boolean;
 }
 
@@ -47,6 +64,7 @@ export interface MarcarLeidasResponse {
 // API
 // ======================================================================
 export const notificacionesApi = {
+  /** Lista las notificaciones del usuario autenticado. */
   listar(
     params: {
       solo_no_leidas?: boolean;
@@ -62,7 +80,7 @@ export const notificacionesApi = {
     return http.get<ContadorNoLeidas>('/notificaciones/contador');
   },
 
-  obtener(id: number): Promise<Notificacion> {
+  obtener(id: Id): Promise<Notificacion> {
     return http.get<Notificacion>(`/notificaciones/${id}`);
   },
 
@@ -70,18 +88,22 @@ export const notificacionesApi = {
   marcarLeidas(
     payload: MarcarLeidasRequest
   ): Promise<MarcarLeidasResponse> {
-    return http.post<MarcarLeidasResponse>('/notificaciones/marcar-leidas', payload);
+    return http.post<MarcarLeidasResponse>(
+      '/notificaciones/marcar-leidas',
+      payload
+    );
   },
 
-  marcarLeida(id: number): Promise<Notificacion> {
+  marcarLeida(id: Id): Promise<Notificacion> {
     return http.post<Notificacion>(`/notificaciones/${id}/leer`);
   },
 
-  marcarNoLeida(id: number): Promise<Notificacion> {
+  marcarNoLeida(id: Id): Promise<Notificacion> {
     return http.post<Notificacion>(`/notificaciones/${id}/no-leer`);
   },
 
-  eliminar(id: number): Promise<void> {
+  /** Elimina una notificación (204). */
+  eliminar(id: Id): Promise<void> {
     return http.delete<void>(`/notificaciones/${id}`);
   },
 

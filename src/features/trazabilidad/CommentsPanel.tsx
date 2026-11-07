@@ -7,19 +7,33 @@
  * - Crear comentario general.
  * - Marcar como resuelto / no resuelto.
  * - Eliminar comentario propio.
+ *
+ * Contrato (app/api/v1/trazabilidad_router.py + trazabilidad_schema.py,
+ * Ciclo 2):
+ * - GET /diagramas/{id}/comentarios?solo_no_resueltos= → LISTA PLANA de
+ *   ComentarioDiagramaResponse (limit default 100, máx 500).
+ * - `id_entidad` es el uuid str del ELEMENTO EMBEBIDO del Diagrama
+ *   (ClaseUML.id, RelacionUML.id…); null = comentario general.
+ * - `id_usuario` es ObjectId hex (string): se compara directo con
+ *   usuario.id del authStore para saber si el usuario es el autor
+ *   (solo el autor puede eliminar; regla del backend).
+ * - PUT /comentarios/{id} acepta { texto?, resuelto? }; DELETE → 204.
+ * - Todos los ids son string hex (PydanticObjectId), no number.
  */
 
 import { useCallback, useEffect, useState } from 'react';
 
 import Button from '@/components/Button';
 import { trazabilidadApi, type ComentarioDiagrama } from '@/api';
+import type { Id } from '@/types';
 import { useAuthStore, useDiagramaStore, toast } from '@/store';
 
 // ======================================================================
 // Tipos
 // ======================================================================
 interface CommentsPanelProps {
-  diagramaId: number;
+  /** ObjectId hex del diagrama (string, Ciclo 2). */
+  diagramaId: Id;
   disabled?: boolean;
 }
 

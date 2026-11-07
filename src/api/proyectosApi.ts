@@ -1,11 +1,30 @@
 // src/api/proyectosApi.ts
 /**
  * Endpoints del módulo de proyectos y miembros.
- * Corresponde a `app/api/v1/proyectos_router.py` del backend.
+ * Corresponde a `app/api/v1/proyectos_router.py` del backend Ciclo 2.
+ *
+ * Rutas (verificadas contra el router):
+ *   GET    /proyectos                                  → página (skip/limit/incluir_archivados/todos)
+ *   POST   /proyectos                                  → 201 Proyecto
+ *   GET    /proyectos/{id}                             → ProyectoConMiembros
+ *   PUT    /proyectos/{id}                             → Proyecto
+ *   POST   /proyectos/{id}/archivar                    → Proyecto
+ *   POST   /proyectos/{id}/reactivar                   → Proyecto
+ *   DELETE /proyectos/{id}                             → 204
+ *   GET    /proyectos/{id}/miembros                    → MiembroProyecto[]
+ *   POST   /proyectos/{id}/miembros                    → 201 MiembroProyecto
+ *   PUT    /proyectos/{id}/miembros/{miembro_id}       → MiembroProyecto
+ *   DELETE /proyectos/{id}/miembros/{miembro_id}       → 204
+ *   POST   /proyectos/{id}/transferir-propiedad        → MiembroProyecto
+ *
+ * Nota Ciclo 2: los miembros van embebidos, así que `{miembro_id}` en
+ * las rutas de miembros es el **id_usuario** del miembro (ver
+ * proyecto_service.py). Los ids viajan como string (ObjectId hex).
  */
 
 import { http } from './httpClient';
 import type {
+  Id,
   MiembroProyecto,
   MiembroProyectoCreate,
   MiembroProyectoUpdate,
@@ -31,28 +50,28 @@ export const proyectosApi = {
     return http.post<Proyecto>('/proyectos', payload);
   },
 
-  /** Obtiene un proyecto con su lista de miembros. */
-  obtener(id: number): Promise<ProyectoConMiembros> {
+  /** Obtiene un proyecto con su lista de miembros (con_miembros=True). */
+  obtener(id: Id): Promise<ProyectoConMiembros> {
     return http.get<ProyectoConMiembros>(`/proyectos/${id}`);
   },
 
   /** Actualiza nombre/descripción/estado de un proyecto. */
-  actualizar(id: number, payload: ProyectoUpdate): Promise<Proyecto> {
+  actualizar(id: Id, payload: ProyectoUpdate): Promise<Proyecto> {
     return http.put<Proyecto>(`/proyectos/${id}`, payload);
   },
 
   /** Archiva un proyecto (solo PROPIETARIO). */
-  archivar(id: number): Promise<Proyecto> {
+  archivar(id: Id): Promise<Proyecto> {
     return http.post<Proyecto>(`/proyectos/${id}/archivar`);
   },
 
   /** Reactiva un proyecto archivado (solo PROPIETARIO). */
-  reactivar(id: number): Promise<Proyecto> {
+  reactivar(id: Id): Promise<Proyecto> {
     return http.post<Proyecto>(`/proyectos/${id}/reactivar`);
   },
 
-  /** Elimina un proyecto (solo PROPIETARIO). */
-  eliminar(id: number): Promise<void> {
+  /** Elimina un proyecto y todo lo asociado en cascada (solo PROPIETARIO). */
+  eliminar(id: Id): Promise<void> {
     return http.delete<void>(`/proyectos/${id}`);
   },
 
@@ -60,13 +79,13 @@ export const proyectosApi = {
   // MIEMBROS
   // ====================================================================
   /** Lista los miembros del proyecto. */
-  listarMiembros(proyectoId: number): Promise<MiembroProyecto[]> {
+  listarMiembros(proyectoId: Id): Promise<MiembroProyecto[]> {
     return http.get<MiembroProyecto[]>(`/proyectos/${proyectoId}/miembros`);
   },
 
   /** Agrega un miembro al proyecto (solo PROPIETARIO). */
   agregarMiembro(
-    proyectoId: number,
+    proyectoId: Id,
     payload: MiembroProyectoCreate
   ): Promise<MiembroProyecto> {
     return http.post<MiembroProyecto>(
@@ -75,10 +94,13 @@ export const proyectosApi = {
     );
   },
 
-  /** Cambia el rol de un miembro (solo PROPIETARIO). */
+  /**
+   * Cambia el rol de un miembro (solo PROPIETARIO).
+   * `miembroId` = id_usuario del miembro (los miembros van embebidos).
+   */
   cambiarRolMiembro(
-    proyectoId: number,
-    miembroId: number,
+    proyectoId: Id,
+    miembroId: Id,
     payload: MiembroProyectoUpdate
   ): Promise<MiembroProyecto> {
     return http.put<MiembroProyecto>(
@@ -87,17 +109,23 @@ export const proyectosApi = {
     );
   },
 
-  /** Quita a un miembro del proyecto. */
-  quitarMiembro(proyectoId: number, miembroId: number): Promise<void> {
+  /**
+   * Quita a un miembro del proyecto. `miembroId` = id_usuario del miembro.
+   * Un miembro también puede quitarse a sí mismo (salirse).
+   */
+  quitarMiembro(proyectoId: Id, miembroId: Id): Promise<void> {
     return http.delete<void>(
       `/proyectos/${proyectoId}/miembros/${miembroId}`
     );
   },
 
-  /** Transfiere la propiedad del proyecto a otro miembro. */
+  /**
+   * Transfiere la propiedad del proyecto a otro miembro (query param
+   * `nuevo_propietario_id`, como lo declara el router).
+   */
   transferirPropiedad(
-    proyectoId: number,
-    nuevoPropietarioId: number
+    proyectoId: Id,
+    nuevoPropietarioId: Id
   ): Promise<MiembroProyecto> {
     return http.post<MiembroProyecto>(
       `/proyectos/${proyectoId}/transferir-propiedad`,

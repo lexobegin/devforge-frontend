@@ -2,8 +2,19 @@
 /**
  * Panel de colaboradores conectados al diagrama.
  *
- * Se actualiza automáticamente desde el `colaboracionStore`
- * (alimentado por eventos WebSocket en la Fase 10).
+ * Se alimenta del `colaboracionStore`, que llena el hook WebSocket
+ * (useDiagramSocket, F22) con los eventos de presencia de la sesión:
+ * - `conectados: ColaboradorConectado[]` — SOLO los otros (el hook
+ *   excluye a `miUsuarioId`, por eso "yo" se pinta aparte desde el
+ *   authStore).
+ * - `isConnected` — estado del socket para el badge "En vivo/Offline".
+ *
+ * Contratos verificados contra el backend:
+ * - ColaboradorConectado {id: Id, nombre, color} (colaboracionStore).
+ * - Usuario {id: Id, nombre_completo} (usuario_schema del backend).
+ * - La sesión colaborativa lleva los participantes EMBEBIDOS
+ *   (ParticipanteSesionResponse sin id propio) y entra por WS, no por
+ *   REST: este panel no llama a ninguna API, solo lee el store.
  */
 
 import Avatar from '@/components/Avatar';

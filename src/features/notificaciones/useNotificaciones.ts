@@ -5,11 +5,16 @@
  * Mantiene la lista de notificaciones del usuario y el contador de no
  * leídas. Hace polling cada 30s para mantener el badge actualizado, y
  * expone acciones para marcar leídas / limpiar.
+ *
+ * Contrato Ciclo 2 (notificaciones_router.py): los ids de notificación
+ * llegan como PydanticObjectId serializado a STRING HEX → se tipan con
+ * `Id`, nunca number.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { notificacionesApi, type Notificacion } from '@/api';
+import type { Id } from '@/types';
 import { toast } from '@/store';
 
 // ======================================================================
@@ -31,10 +36,10 @@ interface UseNotificacionesReturn {
   isLoading: boolean;
   error: string | null;
   cargar: (soloNoLeidas?: boolean) => Promise<void>;
-  marcarLeida: (id: number) => Promise<void>;
-  marcarNoLeida: (id: number) => Promise<void>;
+  marcarLeida: (id: Id) => Promise<void>;
+  marcarNoLeida: (id: Id) => Promise<void>;
   marcarTodasLeidas: () => Promise<void>;
-  eliminar: (id: number) => Promise<void>;
+  eliminar: (id: Id) => Promise<void>;
   limpiarLeidas: () => Promise<void>;
 }
 
@@ -108,7 +113,7 @@ export function useNotificaciones(
   // Acciones
   // ------------------------------------------------------------------
   const marcarLeida = useCallback(
-    async (id: number) => {
+    async (id: Id) => {
       try {
         const actualizada = await notificacionesApi.marcarLeida(id);
         setNotificaciones((prev) =>
@@ -124,7 +129,7 @@ export function useNotificaciones(
     []
   );
 
-  const marcarNoLeida = useCallback(async (id: number) => {
+  const marcarNoLeida = useCallback(async (id: Id) => {
     try {
       const actualizada = await notificacionesApi.marcarNoLeida(id);
       setNotificaciones((prev) =>
@@ -151,7 +156,7 @@ export function useNotificaciones(
   }, []);
 
   const eliminar = useCallback(
-    async (id: number) => {
+    async (id: Id) => {
       try {
         const notif = notificaciones.find((n) => n.id === id);
         await notificacionesApi.eliminar(id);

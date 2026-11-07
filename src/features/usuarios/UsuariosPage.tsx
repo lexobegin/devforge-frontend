@@ -8,9 +8,13 @@
  * - Editar (nombre, email, rol, estado).
  * - Activar / desactivar (soft-disable).
  * - Eliminar (excepcional).
+ *
+ * Contrato Ciclo 2 (usuarios_router.py): GET /usuarios con
+ * skip/limit/solo_activos; POST /{id}/activar y /{id}/desactivar;
+ * PUT y DELETE /{id}. Los ids son string hex (Id) — sin parseInt.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 
 import Avatar from '@/components/Avatar';
 import Button from '@/components/Button';
@@ -417,7 +421,7 @@ function UsuarioFormModal({
     }
   }, [open, usuario]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (isLoading) return;
 
@@ -545,7 +549,9 @@ function UsuarioFormModal({
               className="input-base"
               disabled={isLoading}
             >
+              {/* Los 3 valores de RolGlobal (usuario_schema.py) */}
               <option value="DESARROLLADOR">Desarrollador</option>
+              <option value="LIDER">Líder</option>
               <option value="ADMIN">Administrador</option>
             </select>
           </div>

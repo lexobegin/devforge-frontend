@@ -1,15 +1,26 @@
 // src/features/diagrama-editor/ai-assistant/AIImageUpload.tsx
 /**
- * Subida de boceto para IA de visión.
+ * Subida de boceto para la IA de visión (/ai-vision, aiVisionApi).
  *
  * Permite:
  * - Arrastrar y soltar una imagen.
  * - Seleccionar un archivo desde el sistema.
- * - Pegar desde el portapapeles (Ctrl+V) si el panel tiene foco.
+ * - Pegar desde el portapapeles (Ctrl+V) si el panel está montado.
  *
- * Envía la imagen a `aiVisionApi.reconocerParaDiagrama()` y muestra el
- * resumen de lo detectado. El usuario debe confirmar para insertar los
- * elementos en el diagrama actual.
+ * Envía la imagen a `aiVisionApi.reconocerParaDiagrama(diagramaId, file,
+ * 'es')` y muestra el resumen de lo detectado. El usuario debe CONFIRMAR
+ * para insertar: la inserción va por los endpoints CRUD normales
+ * (crearClase/crearRelacion del diagramaStore), NUNCA automática.
+ *
+ * Contratos verificados:
+ * - diagramaId: Id (ObjectId hex) — el paste traía `number | null`.
+ * - VisionReconocimientoResponse.diagrama_reconstruido sigue el formato
+ *   de DiagramaCompletoResponse → clases: ClaseUML[], relaciones:
+ *   RelacionUML[] (tipados acá; el paste los trataba como registros
+ *   sueltos con casts por elemento).
+ * - Las relaciones del resultado referencian los ids del payload
+ *   reconstruido: al insertar se mapea id reconstruido → id REAL que
+ *   devuelve crearClase (Promise<ClaseUML>) antes de crearRelacion.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -17,10 +28,44 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Button from '@/components/Button';
 import { aiVisionApi } from '@/api';
 import { useDiagramaStore, toast } from '@/store';
+import type { ClaseUML, Id, RelacionUML, TipoRelacion } from '@/types';
+
+// ======================================================================
+// Tipos
+// ======================================================================
+interface ResultadoVision {
+  clases: ClaseUML[];
+  relaciones: RelacionUML[];
+  advertencias: string[];
+  confianza: number | null;
+}
 
 interface AIImageUploadProps {
-  diagramaId: number | null;
+  diagramaId: Id | null;
   disabled?: boolean;
+}
+
+/** Los 6 valores del Literal TipoRelacion del backend (diagrama_schema). */
+const TIPOS_RELACION: readonly TipoRelacion[] = [
+  'ASOCIACION',
+  'AGREGACION',
+  'COMPOSICION',
+  'DEPENDENCIA',
+  'GENERALIZACION',
+  'REALIZACION',
+];
+
+/** Defensa para payloads externos (la visión es datos del modelo). */
+function esTipoRelacion(valor: string): valor is TipoRelacion {
+  return (TIPOS_RELACION as readonly string[]).includes(valor);
+}
+
+/** Cuantiza a 2 decimales (== PosicionLienzo 0.01 del backend). */
+function posAleatoria(baseX: number, baseY: number): { pos_x: number; pos_y: number } {
+  return {
+    pos_x: Math.round((baseX + Math.random() * 300) * 100) / 100,
+    pos_y: Math.round((baseY + Math.random() * 200) * 100) / 100,
+  };
 }
 
 export function AIImageUpload({
@@ -29,15 +74,11 @@ export function AIImageUpload({
 }: AIImageUploadProps) {
   const [arrastrando, setArrastrando] = useState(false);
   const [procesando, setProcesando] = useState(false);
-  const [resultado, setResultado] = useState<{
-    clases: Array<Record<string, unknown>>;
-    relaciones: Array<Record<string, unknown>>;
-    advertencias: string[];
-    confianza: number | null;
-  } | null>(null);
+  const [resultado, setResultado] = useState<ResultadoVision | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const crearClase = useDiagramaStore((s) => s.crearClase);
+  const crearRelacion = useDiagramaStore((s) => s.crearRelacion);
 
   // ------------------------------------------------------------------
   // Procesar archivo
@@ -61,10 +102,12 @@ export function AIImageUpload({
           file,
           'es'
         );
+        // diagrama_reconstruido es dict[str, Any] en el backend:
+        // defensas al leer claves, como cualquier payload externo.
         setResultado({
-          clases: resp.diagrama_reconstruido.clases,
-          relaciones: resp.diagrama_reconstruido.relaciones,
-          advertencias: resp.advertencias,
+          clases: resp.diagrama_reconstruido?.clases ?? [],
+          relaciones: resp.diagrama_reconstruido?.relaciones ?? [],
+          advertencias: resp.advertencias ?? [],
           confianza: resp.confianza,
         });
 
@@ -74,7 +117,7 @@ export function AIImageUpload({
           );
         } else {
           toast.success(
-            `Se detectaron ${resp.diagrama_reconstruido.clases.length} clases`
+            `Se detectaron ${resp.diagrama_reconstruido?.clases?.length ?? 0} clases`
           );
         }
       } catch (err) {
@@ -128,32 +171,67 @@ export function AIImageUpload({
   }, [procesarArchivo]);
 
   // ------------------------------------------------------------------
-  // Insertar en el diagrama
+  // Insertar en el diagrama (clases + relaciones con mapa de ids)
   // ------------------------------------------------------------------
   const insertar = useCallback(async () => {
     if (!resultado) return;
 
-    let insertadas = 0;
+    // Mapa id reconstruido → id REAL (las relaciones del payload
+    // referencian los ids reconstruidos, no los nuevos).
+    const mapaIds = new Map<Id, Id>();
+    let clasesInsertadas = 0;
     for (const c of resultado.clases) {
-      const nombre = String((c as { nombre?: string }).nombre ?? '').trim();
+      const nombre = c.nombre?.trim();
       if (!nombre) continue;
       try {
-        await crearClase({
+        const creada = await crearClase({
           nombre,
-          pos_x: 200 + Math.random() * 300,
-          pos_y: 150 + Math.random() * 200,
+          ...posAleatoria(200, 150),
         });
-        insertadas++;
+        mapaIds.set(c.id, creada.id);
+        clasesInsertadas++;
       } catch {
         // Ignorar duplicados o errores puntuales
       }
     }
 
-    if (insertadas > 0) {
-      toast.success(`${insertadas} clase${insertadas > 1 ? 's' : ''} insertada${insertadas > 1 ? 's' : ''}`);
+    let relacionesInsertadas = 0;
+    for (const r of resultado.relaciones) {
+      const origenId = mapaIds.get(r.id_clase_origen);
+      const destinoId = mapaIds.get(r.id_clase_destino);
+      if (!origenId || !destinoId || origenId === destinoId) continue;
+      if (!esTipoRelacion(r.tipo_relacion)) continue;
+      try {
+        await crearRelacion({
+          id_clase_origen: origenId,
+          id_clase_destino: destinoId,
+          tipo_relacion: r.tipo_relacion,
+          multiplicidad_origen: r.multiplicidad_origen ?? null,
+          multiplicidad_destino: r.multiplicidad_destino ?? null,
+          nombre_asociacion: r.nombre_asociacion ?? null,
+        });
+        relacionesInsertadas++;
+      } catch {
+        // Error puntual: se sigue con las demás
+      }
+    }
+
+    if (clasesInsertadas > 0 || relacionesInsertadas > 0) {
+      const partes: string[] = [];
+      if (clasesInsertadas > 0) {
+        partes.push(
+          `${clasesInsertadas} clase${clasesInsertadas !== 1 ? 's' : ''}`
+        );
+      }
+      if (relacionesInsertadas > 0) {
+        partes.push(
+          `${relacionesInsertadas} relación${relacionesInsertadas !== 1 ? 'es' : ''}`
+        );
+      }
+      toast.success(`${partes.join(' y ')} insertada(s) en el diagrama`);
     }
     setResultado(null);
-  }, [resultado, crearClase]);
+  }, [resultado, crearClase, crearRelacion]);
 
   // ------------------------------------------------------------------
   // Render
@@ -258,9 +336,9 @@ export function AIImageUpload({
               {/* Lista de clases */}
               {resultado.clases.length > 0 && (
                 <ul className="mt-3 space-y-0.5 text-xs text-surface-400">
-                  {resultado.clases.slice(0, 10).map((c, i) => (
-                    <li key={i} className="truncate">
-                      • {String((c as { nombre?: string }).nombre ?? '?')}
+                  {resultado.clases.slice(0, 10).map((c) => (
+                    <li key={c.id} className="truncate">
+                      • {c.nombre}
                     </li>
                   ))}
                   {resultado.clases.length > 10 && (
@@ -298,7 +376,13 @@ export function AIImageUpload({
                 onClick={() => void insertar()}
                 disabled={resultado.clases.length === 0}
               >
-                Insertar {resultado.clases.length} clases
+                Insertar {resultado.clases.length} clase
+                {resultado.clases.length !== 1 ? 's' : ''}
+                {resultado.relaciones.length > 0
+                  ? ` y ${resultado.relaciones.length} relación${
+                      resultado.relaciones.length !== 1 ? 'es' : ''
+                    }`
+                  : ''}
               </Button>
             </div>
           </div>

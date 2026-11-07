@@ -3,22 +3,19 @@
  * Panel de chat con la IA (prompts por texto).
  *
  * - Lista de mensajes (usuario + asistente).
- * - Input de texto al pie.
- * - Si el asistente propone acciones, se muestra un botón "Aplicar".
+ * - Input de texto al pie (Enter envía, Shift+Enter salto de línea).
+ * - Si el asistente propone acciones, botón "Aplicar al diagrama"
+ *   (la confirmación por ids la resuelve useAIPrompt → POST
+ *   /ia/acciones/confirmar; NADA se aplica sin confirmación explícita).
+ *
+ * El tipo ChatMessage vive en useAIPrompt (única fuente de verdad): el
+ * paste duplicaba la interfaz acá y podía desincronizarse.
  */
 
 import { FormEvent, useEffect, useRef, useState } from 'react';
 
 import Button from '@/components/Button';
-import type { AccionIAPropuesta } from '@/api/iaApi';
-
-interface ChatMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  texto: string;
-  acciones?: AccionIAPropuesta[];
-  aplicada?: boolean;
-}
+import type { ChatMessage } from './useAIPrompt';
 
 interface AIChatPanelProps {
   mensajes: ChatMessage[];
@@ -27,6 +24,12 @@ interface AIChatPanelProps {
   onAplicar: (mensajeId: string) => Promise<void>;
   onLimpiar: () => void;
   disabled?: boolean;
+  /** Prompts encolados sin conexión (cola IA del F26). */
+  pendientes?: number;
+  /** ¿Reenvío de la cola en curso? */
+  procesandoPendientes?: boolean;
+  /** Reenvía manualmente los prompts encolados. */
+  onProcesarPendientes?: () => void;
 }
 
 export function AIChatPanel({
@@ -36,6 +39,9 @@ export function AIChatPanel({
   onAplicar,
   onLimpiar,
   disabled = false,
+  pendientes = 0,
+  procesandoPendientes = false,
+  onProcesarPendientes,
 }: AIChatPanelProps) {
   const [texto, setTexto] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -47,16 +53,41 @@ export function AIChatPanel({
     }
   }, [mensajes.length, enviando]);
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (!texto.trim() || enviando || disabled) return;
+  // Envío común del form y del atajo Enter (sin casts de eventos).
+  async function enviar() {
     const t = texto.trim();
+    if (!t || enviando || disabled) return;
     setTexto('');
     await onEnviar(t);
   }
 
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    await enviar();
+  }
+
   return (
     <div className="flex h-full flex-col">
+      {/* Aviso de cola offline (F26): prompts que esperan reconexión */}
+      {pendientes > 0 && (
+        <div className="flex items-center justify-between gap-2 border-b border-surface-800 bg-surface-900/60 px-3 py-1.5">
+          <span className="text-[11px] text-surface-400">
+            {pendientes} prompt{pendientes !== 1 ? 's' : ''} encolado
+            {pendientes !== 1 ? 's' : ''} sin conexión
+          </span>
+          {onProcesarPendientes && (
+            <button
+              type="button"
+              onClick={onProcesarPendientes}
+              disabled={procesandoPendientes}
+              className="text-[11px] font-medium text-brand-300 hover:text-brand-200 disabled:opacity-50"
+            >
+              {procesandoPendientes ? 'Enviando…' : 'Enviar pendientes'}
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Header con botón limpiar */}
       {mensajes.length > 0 && (
         <div className="flex items-center justify-end border-b border-surface-800 px-3 py-1.5">
@@ -108,7 +139,7 @@ export function AIChatPanel({
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                void handleSubmit(e as unknown as FormEvent);
+                void enviar();
               }
             }}
             placeholder="Escribí un prompt… (ej: crea la clase Paciente)"
@@ -179,7 +210,7 @@ function MessageBubble({
             <ul className="space-y-1">
               {mensaje.acciones.map((a, i) => (
                 <li key={i} className="text-xs text-surface-300">
-                  • {a.descripcion ?? a.tipo}
+                  • {a.descripcion ?? a.tipo_accion}
                 </li>
               ))}
             </ul>

@@ -8,8 +8,14 @@
  *
  * La cola mantiene el orden FIFO para que las dependencias se apliquen
  * correctamente (ej. crear clase → agregar atributo → crear relación).
+ *
+ * Contrato con el backend (POST /sincronizacion/batch): los estados
+ * locales PENDIENTE/FALLIDO son los que se reenvían; ENVIADO y CONFLICTO
+ * son terminales (el CONFLICTO queda para que el PROPIETARIO lo resuelva
+ * con sincronizacionApi.resolverConflicto).
  */
 
+import type { Id } from '@/types/common';
 import {
   db,
   generarIdTemporalLocal,
@@ -23,7 +29,7 @@ export const syncQueue = {
    * Devuelve el id temporal local generado.
    */
   async encolar(
-    idDiagrama: number,
+    idDiagrama: Id,
     tipoOperacion: TipoOperacionSync,
     payload: Record<string, unknown>
   ): Promise<string> {
@@ -42,7 +48,7 @@ export const syncQueue = {
   },
 
   /** Lista los pendientes de un diagrama, en orden de llegada. */
-  async pendientes(idDiagrama: number): Promise<ItemColaSync[]> {
+  async pendientes(idDiagrama: Id): Promise<ItemColaSync[]> {
     const items = await db.colaSync
       .where('id_diagrama')
       .equals(idDiagrama)
@@ -60,7 +66,7 @@ export const syncQueue = {
   },
 
   /** Cuenta cuántos items pendientes hay para un diagrama. */
-  async contarPendientesPorDiagrama(idDiagrama: number): Promise<number> {
+  async contarPendientesPorDiagrama(idDiagrama: Id): Promise<number> {
     const items = await this.pendientes(idDiagrama);
     return items.length;
   },
@@ -104,12 +110,12 @@ export const syncQueue = {
   },
 
   /** Elimina todos los items de un diagrama (por ejemplo al descartar). */
-  async limpiarDiagrama(idDiagrama: number): Promise<void> {
+  async limpiarDiagrama(idDiagrama: Id): Promise<void> {
     await db.colaSync.where('id_diagrama').equals(idDiagrama).delete();
   },
 
   /** Lista los items que quedaron en conflicto (para el panel del propietario). */
-  async conflictos(idDiagrama: number): Promise<ItemColaSync[]> {
+  async conflictos(idDiagrama: Id): Promise<ItemColaSync[]> {
     const items = await db.colaSync
       .where('id_diagrama')
       .equals(idDiagrama)

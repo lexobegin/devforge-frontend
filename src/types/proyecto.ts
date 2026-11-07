@@ -1,20 +1,26 @@
 // src/types/proyecto.ts
 /**
  * Tipos del módulo de proyectos y miembros.
- * Reflejan `app/schemas/proyecto_schema.py` del backend.
+ * Reflejan `app/schemas/proyecto_schema.py` del backend Ciclo 2.
+ *
+ * Alineado con el backend:
+ * - MiembroProyecto es un documento EMBEBIDO en Proyecto.miembros: NO
+ *   tiene id propio ni id_proyecto (el alcance lo da la anidación) y el
+ *   backend no anida datos del usuario. El miembro se identifica por
+ *   id_usuario (los endpoints PUT/DELETE /{proyecto_id}/miembros/
+ *   {miembro_id} reciben el id_usuario, ver proyecto_service.py).
  */
 
 import type { ISODateString, Id, PaginationParams } from './common';
-import type { Usuario } from './usuario';
 
 // ======================================================================
-// Enums / literales
+// Enums / literales (proyecto_schema.py)
 // ======================================================================
 export type EstadoProyecto = 'ACTIVO' | 'ARCHIVADO';
 export type RolEnProyecto = 'PROPIETARIO' | 'EDITOR' | 'LECTOR';
 
 // ======================================================================
-// Proyecto
+// Proyecto (ProyectoResponse)
 // ======================================================================
 export interface Proyecto {
   id: Id;
@@ -42,20 +48,18 @@ export interface ProyectoUpdate {
 }
 
 // ======================================================================
-// Miembros
+// Miembros (MiembroProyectoResponse — embebido en Proyecto.miembros)
 // ======================================================================
 export interface MiembroProyecto {
-  id: Id;
-  id_proyecto: Id;
+  /** Usuario miembro (el backend lo envía y recibe como string) */
   id_usuario: Id;
   rol_en_proyecto: RolEnProyecto;
   joined_at: ISODateString;
-  /** Datos del usuario (solo si el backend los incluye en el response) */
-  usuario?: Pick<Usuario, 'id' | 'nombre_completo' | 'email'>;
 }
 
 export interface MiembroProyectoCreate {
   id_usuario: Id;
+  /** El backend usa EDITOR por defecto */
   rol_en_proyecto?: RolEnProyecto;
 }
 
@@ -64,7 +68,8 @@ export interface MiembroProyectoUpdate {
 }
 
 // ======================================================================
-// Filtros / queries
+// Filtros / queries (listar_proyectos: skip, limit, incluir_archivados,
+// todos — este último solo ADMIN)
 // ======================================================================
 export interface ProyectosQuery extends PaginationParams {
   incluir_archivados?: boolean;

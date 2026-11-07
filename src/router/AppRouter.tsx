@@ -1,5 +1,21 @@
 // src/router/AppRouter.tsx
+/**
+ * Router principal de la aplicación.
+ *
+ * - Públicas: /login y /register (con AuthLayout); si ya hay sesión
+ *   redirigen a /proyectos.
+ * - Protegidas (AppLayout hace el guard de sesión): proyectos,
+ *   editor de diagramas, generación, notificaciones.
+ * - Solo ADMIN: /usuarios y /auditoria (guard RequireAdmin).
+ * - 404 catch-all.
+ *
+ * NOTA (tandas): las páginas que importa nacen en el Bloque H
+ * (F31-F44). Hasta cerrarlas, este archivo y App.tsx quedan FUERA del
+ * tsc de conjunto cerrado (igual que main.tsx).
+ */
+
 import { Navigate, Route, Routes } from 'react-router-dom';
+import type { ReactNode } from 'react';
 
 import AppLayout from '@/components/layout/AppLayout';
 import { AuthLayout } from '@/features/auth/AuthLayout';
@@ -17,7 +33,7 @@ import { useAuthStore } from '@/store';
 // ----------------------------------------------------------------------
 // Guard de admin
 // ----------------------------------------------------------------------
-function RequireAdmin({ children }: { children: React.ReactNode }) {
+function RequireAdmin({ children }: { children: ReactNode }) {
   const esAdmin = useAuthStore((s) => s.usuario?.rol === 'ADMIN');
   if (!esAdmin) {
     return <Navigate to="/proyectos" replace />;
@@ -45,7 +61,6 @@ function NotFoundPage() {
 // ----------------------------------------------------------------------
 export default function AppRouter() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  console.log('[AppRouter] RENDER isAuthenticated=', isAuthenticated);
 
   return (
     <Routes>
@@ -94,11 +109,11 @@ export default function AppRouter() {
         <Route path="/diagramas/:diagramaId" element={<DiagramEditorPage />} />
         <Route path="/generacion/:trabajoId" element={<GeneracionStatusPage />} />
         <Route path="/notificaciones" element={<NotificacionesPage />} />
-        <Route 
-          path="/usuarios" 
+        <Route
+          path="/usuarios"
           element={
-            <RequireAdmin> 
-              <UsuariosPage /> 
+            <RequireAdmin>
+              <UsuariosPage />
             </RequireAdmin>
           }
         />

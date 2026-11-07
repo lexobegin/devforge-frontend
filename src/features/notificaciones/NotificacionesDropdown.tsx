@@ -5,17 +5,18 @@
  * - Icono de campana con badge de no leídas.
  * - Al abrir, muestra las últimas notificaciones.
  * - Permite marcar leídas y ver todas (link a /notificaciones).
+ *
+ * El Navbar lo monta desde la tanda F37 (placeholder conectado).
  */
 
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-//import { toast } from '@/store';
 import useNotificaciones from './useNotificaciones';
 import type { Notificacion, TipoNotificacion } from '@/api';
 
 // ======================================================================
-// Iconos por tipo
+// Iconos por tipo (los 8 del Literal del schema)
 // ======================================================================
 const TIPO_ICON: Record<TipoNotificacion, string> = {
   COMENTARIO:

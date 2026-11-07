@@ -7,13 +7,18 @@
  * - Multiplicidades origen/destino.
  * - Nombre de la asociación, roles.
  * - Eliminar la relación.
+ *
+ * CONTRATO CICLO 2: `relacion.id` es el uuid str de la RelacionUML
+ * EMBEBIDA (Id = string); las mutaciones van por actualizarRelacion/
+ * eliminarRelacion del diagramaStore con payload RelacionUMLUpdate
+ * (PUT/DELETE /diagramas/relaciones/{relacion_id}).
  */
 
 import { useEffect, useState } from 'react';
 
 import Button from '@/components/Button';
 import { useDiagramaStore, useProyectoStore, useAuthStore, toast } from '@/store';
-import type { RelacionUML, TipoRelacion } from '@/types';
+import type { RelacionUML, RelacionUMLUpdate, TipoRelacion } from '@/types';
 
 // ======================================================================
 // Tipos
@@ -37,7 +42,7 @@ const TIPOS: { valor: TipoRelacion; label: string }[] = [
 export function RelationshipPanel({ relacion }: RelationshipPanelProps) {
   const actualizarRelacion = useDiagramaStore((s) => s.actualizarRelacion);
   const eliminarRelacion = useDiagramaStore((s) => s.eliminarRelacion);
-  const seleccionar = useDiagramaStore((s) => s.seleccionar);
+  const setSeleccion = useDiagramaStore((s) => s.setSeleccion);
   const clases = useDiagramaStore((s) => s.clases);
 
   const usuario = useAuthStore((s) => s.usuario);
@@ -77,7 +82,7 @@ export function RelationshipPanel({ relacion }: RelationshipPanelProps) {
   // ------------------------------------------------------------------
   // Guardar
   // ------------------------------------------------------------------
-  async function guardar(payload: Partial<RelacionUML>) {
+  async function guardar(payload: RelacionUMLUpdate) {
     try {
       await actualizarRelacion(relacion.id, payload);
     } catch (err) {
@@ -94,7 +99,7 @@ export function RelationshipPanel({ relacion }: RelationshipPanelProps) {
     if (!window.confirm('¿Eliminar esta relación?')) return;
     try {
       await eliminarRelacion(relacion.id);
-      seleccionar(null);
+      setSeleccion(null);
       toast.success('Relación eliminada');
     } catch (err) {
       toast.error(

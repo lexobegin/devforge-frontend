@@ -16,9 +16,11 @@ export type {
   RelacionLocal,
   ItemColaSync,
   TipoOperacionSync,
+  ItemColaIA,
 } from './indexedDbClient';
 
 export { diagramaLocalRepo } from './diagramaLocalRepo';
 export { syncQueue } from './syncQueue';
-export { syncManager } from './syncManager';
+export { syncManager, type ResumenSync } from './syncManager';
+export { iaOfflineQueue, type ResumenReenvioIA } from './iaOfflineQueue';
 export { registerServiceWorker, unregisterServiceWorkers } from './serviceWorker';

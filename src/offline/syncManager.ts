@@ -6,18 +6,19 @@
  * 1. Toma los items PENDIENTES de la cola.
  * 2. Los envía en un batch al backend (`sincronizacionApi.enviarBatch`).
  * 3. Aplica los resultados: marca enviados, conflictos o fallidos.
- * 4. Actualiza el contador de pendientes en el `uiStore`.
  *
  * El batch se envía completo. El backend responde con el mapeo
  * id_temporal_local → id_real (o estado CONFLICTO si hubo colisión).
  *
  * Este módulo puede invocarse:
- * - Automáticamente al detectar `online` (vía `useOnlineStatus`).
- * - Manualmente desde la UI (botón "Sincronizar ahora").
+ * - Automáticamente al detectar `online` (listener de más abajo, y
+ *   también vía `useOnlineStatus`).
+ * - Manualmente desde la UI (botón "Sincronizar ahora" — Toaster F28).
  * - Periódicamente en segundo plano (opcional).
  */
 
 import { sincronizacionApi, type BatchSincronizacionRequest } from '@/api';
+import type { Id } from '@/types/common';
 import { getDispositivoId } from './indexedDbClient';
 import { syncQueue } from './syncQueue';
 
@@ -29,6 +30,12 @@ let sincronizando = false;
 // ======================================================================
 // API
 // ======================================================================
+export interface ResumenSync {
+  total: number;
+  sincronizados: number;
+  conflictos: number;
+}
+
 export const syncManager = {
   /** ¿Hay una sincronización en curso? */
   estaSincronizando(): boolean {
@@ -39,11 +46,7 @@ export const syncManager = {
    * Sincroniza los cambios pendientes de un diagrama.
    * Devuelve el resumen de la sincronización.
    */
-  async sincronizarDiagrama(diagramaId: number): Promise<{
-    total: number;
-    sincronizados: number;
-    conflictos: number;
-  }> {
+  async sincronizarDiagrama(diagramaId: Id): Promise<ResumenSync> {
     if (sincronizando) {
       return { total: 0, sincronizados: 0, conflictos: 0 };
     }
@@ -68,8 +71,8 @@ export const syncManager = {
 
       const respuesta = await sincronizacionApi.enviarBatch(batch);
 
-      // Procesar resultados
-      const porIdTemporal = new Map(
+      // Procesar resultados (mapa id_temporal_local → resultado)
+      const porIdTemporal = new Map<string, (typeof respuesta.resultados)[number]>(
         respuesta.resultados.map((r) => [r.id_temporal_local, r])
       );
 
@@ -121,18 +124,13 @@ export const syncManager = {
    * Sincroniza todos los diagramas que tengan pendientes.
    * Útil al recuperar conexión: no sabemos qué diagrama está abierto.
    */
-  async sincronizarTodo(): Promise<{
-    total: number;
-    sincronizados: number;
-    conflictos: number;
-  }> {
+  async sincronizarTodo(): Promise<ResumenSync> {
     const todos = await syncQueue.contarPendientes();
     if (todos === 0) return { total: 0, sincronizados: 0, conflictos: 0 };
 
-    // Recolectar los diagrama_id únicos con pendientes
-    //const items = await syncQueue.pendientes(0);
-    // La API `pendientes(idDiagrama)` requiere un id; esto no sirve para
-    // "todos". Iteramos por la base directamente:
+    // Recolectar los diagrama_id únicos con pendientes.
+    // `pendientes(idDiagrama)` requiere un id; para "todos" iteramos la
+    // base directamente:
     const { db } = await import('./indexedDbClient');
     const todosLosItems = await db.colaSync.toArray();
     const diagramasUnicos = new Set(

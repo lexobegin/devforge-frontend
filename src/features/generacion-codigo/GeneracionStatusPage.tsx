@@ -7,6 +7,15 @@
  * - Al terminar exitosamente:
  *   - Muestra el detalle del mapeo (entidades generadas).
  *   - Ofrece el botón de descarga.
+ *
+ * CAMBIO CICLO 2: el pipeline corre COMPLETO en la llamada (POST /generar
+ * responde 200 con el trabajo ya EXITOSO, sin 202 + BackgroundTasks), así
+ * que en la práctica la PRIMERA consulta ya devuelve EXITOSO y el polling
+ * solo se conserva por compatibilidad (el backend mantiene el endpoint
+ * /estado liviano justamente para esto).
+ *
+ * CONTRATO CICLO 2: el id del trabajo es ObjectId hex (string) — se lee de
+ * la ruta /generacion/:trabajoId SIN parseInt.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -15,10 +24,10 @@ import { useNavigate, useParams } from 'react-router-dom';
 import Button from '@/components/Button';
 import { PageLoader } from '@/components/Loader';
 import { generacionApi } from '@/api';
-//import { toast } from '@/store';
 import type {
   EstadoGeneracion,
   EstadoTrabajoGeneracion,
+  Id,
   TrabajoGeneracionDetalle,
 } from '@/types';
 import DescargarProyectoButton from './DescargarProyectoButton';
@@ -33,7 +42,8 @@ const POLL_INTERVAL_MS = 2000;
 // ======================================================================
 export function GeneracionStatusPage() {
   const { trabajoId } = useParams<{ trabajoId: string }>();
-  const id = trabajoId ? parseInt(trabajoId, 10) : null;
+  // Id = ObjectId hex (string) en el Ciclo 2 — sin conversión numérica.
+  const id: Id | null = trabajoId ?? null;
   const navigate = useNavigate();
 
   const [estado, setEstado] = useState<EstadoGeneracion | null>(null);
@@ -83,7 +93,7 @@ export function GeneracionStatusPage() {
       }
     };
 
-    // Primera consulta inmediata
+    // Primera consulta inmediata (Ciclo 2: suele ser ya EXITOSO)
     void consultar();
     pollRef.current = window.setInterval(() => {
       void consultar();
@@ -152,7 +162,7 @@ export function GeneracionStatusPage() {
           Generación de backend
         </h1>
         <p className="mt-1 text-sm text-surface-400">
-          Trabajo #{id} · Spring Boot + JPA + PostgreSQL
+          Trabajo {id} · Spring Boot + JPA + PostgreSQL
         </p>
       </div>
 
@@ -211,7 +221,7 @@ export function GeneracionStatusPage() {
                   <tbody>
                     {detalle.entidades.map((e) => (
                       <tr
-                        key={e.id}
+                        key={e.id_clase_uml}
                         className="border-t border-surface-800 hover:bg-surface-800/20"
                       >
                         <td className="px-3 py-2 font-mono text-surface-200">

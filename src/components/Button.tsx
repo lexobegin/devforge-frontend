@@ -4,7 +4,8 @@
  *
  * Variantes: primary | secondary | ghost | danger
  * Tamaños:   sm | md | lg
- * Soporta: loading, iconos (left/right), fullWidth, as="a" con `asChild` simple.
+ * Soporta:   loading (con spinner integrado), iconos left/right,
+ *            fullWidth y forwardRef (focus programático, menús, etc.).
  */
 
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from 'react';

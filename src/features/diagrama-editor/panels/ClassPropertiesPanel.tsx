@@ -7,6 +7,11 @@
  * - Atributos (AttributesEditor).
  * - Operaciones (OperationsEditor).
  * - Botón para eliminar la clase.
+ *
+ * CONTRATO CICLO 2: `clase.id` es el uuid str de la ClaseUML EMBEBIDA
+ * (Id = string); el permiso de edición viene de rol_en_proyecto
+ * ('LECTOR' → solo lectura) y las mutaciones van por el diagramaStore
+ * (actualizar/eliminar con rollback optimista).
  */
 
 import { useEffect, useState } from 'react';
@@ -30,7 +35,7 @@ interface ClassPropertiesPanelProps {
 export function ClassPropertiesPanel({ clase }: ClassPropertiesPanelProps) {
   const actualizarClase = useDiagramaStore((s) => s.actualizarClase);
   const eliminarClase = useDiagramaStore((s) => s.eliminarClase);
-  const seleccionar = useDiagramaStore((s) => s.seleccionar);
+  const setSeleccion = useDiagramaStore((s) => s.setSeleccion);
 
   const usuario = useAuthStore((s) => s.usuario);
   const proyectoActivo = useProyectoStore((s) => s.proyectoActivo);
@@ -104,7 +109,7 @@ export function ClassPropertiesPanel({ clase }: ClassPropertiesPanelProps) {
     }
     try {
       await eliminarClase(clase.id);
-      seleccionar(null);
+      setSeleccion(null);
       toast.success('Clase eliminada');
     } catch (err) {
       toast.error(

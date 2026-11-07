@@ -10,9 +10,17 @@
  *   │    Canvas (React Flow)         │  Sidebar    │
  *   │                                │  / AIPanel  │
  *   └────────────────────────────────┴─────────────┘
+ *
+ * CONTRATO CICLO 2:
+ * - diagramaId viene de la ruta /diagramas/:diagramaId y es ObjectId hex
+ *   (string) — se usa SIN parseInt.
+ * - El store expone `limpiarDiagrama` (no `limpiar`).
+ * - Los subcomponentes DiagramCanvas (F46), DiagramSidebar (F49) y
+ *   AIPanel (F50) llegan en tandas siguientes: este archivo entra al tsc
+ *   de conjunto cuando existan todas sus dependencias (F52).
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import Button from '@/components/Button';
@@ -22,6 +30,7 @@ import {
   useProyectoStore,
   useAuthStore,
 } from '@/store';
+import type { Id } from '@/types';
 import DiagramCanvas from './canvas/DiagramCanvas';
 import DiagramSidebar from './panels/DiagramSidebar';
 import AIPanel from './ai-assistant/AIPanel';
@@ -38,13 +47,14 @@ type PanelDerecho = 'propiedades' | 'versiones' | 'comentarios';
 
 export function DiagramEditorPage() {
   const { diagramaId } = useParams<{ diagramaId: string }>();
-  const id = diagramaId ? parseInt(diagramaId, 10) : null;
+  // Id = ObjectId hex (string) en el Ciclo 2 — sin conversión numérica.
+  const id: Id | null = diagramaId ?? null;
 
   const navigate = useNavigate();
   const usuario = useAuthStore((s) => s.usuario);
 
   const cargarDiagrama = useDiagramaStore((s) => s.cargarDiagrama);
-  const limpiar = useDiagramaStore((s) => s.limpiar);
+  const limpiarDiagrama = useDiagramaStore((s) => s.limpiarDiagrama);
   const diagrama = useDiagramaStore((s) => s.diagrama);
   const isLoading = useDiagramaStore((s) => s.isLoading);
   const error = useDiagramaStore((s) => s.error);
@@ -62,7 +72,7 @@ export function DiagramEditorPage() {
   useEffect(() => {
     if (!id) return;
     void cargarDiagrama(id);
-    return () => limpiar();
+    return () => limpiarDiagrama();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
@@ -225,7 +235,8 @@ function RightPanel({
 }: {
   panel: PanelDerecho;
   setPanel: (p: PanelDerecho) => void;
-  diagramaId: number;
+  // Id = ObjectId hex (string) del Ciclo 2.
+  diagramaId: Id;
   disabled: boolean;
 }) {
   return (
@@ -263,7 +274,7 @@ function TabBtn({
 }: {
   active: boolean;
   onClick: () => void;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <button

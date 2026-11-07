@@ -6,22 +6,26 @@
  * - Header con nombre, estado, acciones (archivar, eliminar).
  * - Lista de diagramas del proyecto (con CTA para crear uno nuevo).
  * - Botón para abrir el modal de miembros.
+ *
+ * Contrato Ciclo 2: `proyectoId` de la URL ya es el ObjectId hex
+ * (string) — sin parseInt. El proyecto activo es ProyectoConMiembros
+ * (miembros embebidos: id_usuario + rol_en_proyecto).
  */
 
-import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useEffect, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 
-import Button from "@/components/Button";
-import { PageLoader } from "@/components/Loader";
-import { useAuthStore, useProyectoStore, toast } from "@/store";
-import { diagramasApi } from "@/api";
-import type { Diagrama } from "@/types";
-import MiembrosProyectoModal from "./components/MiembrosProyectoModal";
-import CrearDiagramaModal from "./components/CrearDiagramaModal";
+import Button from '@/components/Button';
+import { PageLoader } from '@/components/Loader';
+import { useAuthStore, useProyectoStore, toast } from '@/store';
+import { diagramasApi } from '@/api';
+import type { Diagrama } from '@/types';
+import MiembrosProyectoModal from './components/MiembrosProyectoModal';
+import CrearDiagramaModal from './components/CrearDiagramaModal';
 
 export function ProyectoDetailPage() {
   const { proyectoId } = useParams<{ proyectoId: string }>();
-  const id = proyectoId ? parseInt(proyectoId, 10) : null;
+  const id = proyectoId ?? null;
 
   const navigate = useNavigate();
   const usuario = useAuthStore((s) => s.usuario);
@@ -49,7 +53,7 @@ export function ProyectoDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  async function cargarDiagramas(proyectoId: number) {
+  async function cargarDiagramas(proyectoId: string) {
     setCargandoDiagramas(true);
     try {
       const items = await diagramasApi.listarPorProyecto(proyectoId);
@@ -65,11 +69,11 @@ export function ProyectoDetailPage() {
   const miMiembro = proyectoActivo?.miembros.find(
     (m) => m.id_usuario === usuario?.id,
   );
-  const esPropietario = miMiembro?.rol_en_proyecto === "PROPIETARIO";
-  const puedeEditar = ["PROPIETARIO", "EDITOR"].includes(
-    miMiembro?.rol_en_proyecto ?? "",
+  const esPropietario = miMiembro?.rol_en_proyecto === 'PROPIETARIO';
+  const puedeEditar = ['PROPIETARIO', 'EDITOR'].includes(
+    miMiembro?.rol_en_proyecto ?? '',
   );
-  const esActivo = proyectoActivo?.estado === "ACTIVO";
+  const esActivo = proyectoActivo?.estado === 'ACTIVO';
 
   // ------------------------------------------------------------------
   // Acciones
@@ -85,11 +89,11 @@ export function ProyectoDetailPage() {
     }
     try {
       await eliminarProyecto(proyectoActivo.id);
-      toast.success("Proyecto eliminado");
-      navigate("/proyectos", { replace: true });
+      toast.success('Proyecto eliminado');
+      navigate('/proyectos', { replace: true });
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "No se pudo eliminar el proyecto",
+        err instanceof Error ? err.message : 'No se pudo eliminar el proyecto',
       );
     }
   }
@@ -99,15 +103,17 @@ export function ProyectoDetailPage() {
     try {
       if (esActivo) {
         await archivarProyecto(proyectoActivo.id);
-        toast.success("Proyecto archivado");
+        toast.success('Proyecto archivado');
       } else {
         await reactivarProyecto(proyectoActivo.id);
-        toast.success("Proyecto reactivado");
+        toast.success('Proyecto reactivado');
       }
-      await cargarProyectoActivo(proyectoActivo.id);
+      // `forzar: true`: el estado cambió pero el store solo actualiza la
+      // lista (el guard `idCargado` saltaría el GET del detalle).
+      await cargarProyectoActivo(proyectoActivo.id, { forzar: true });
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "No se pudo cambiar el estado",
+        err instanceof Error ? err.message : 'No se pudo cambiar el estado',
       );
     }
   }
@@ -125,7 +131,7 @@ export function ProyectoDetailPage() {
       <div className="mb-6">
         <button
           type="button"
-          onClick={() => navigate("/proyectos")}
+          onClick={() => navigate('/proyectos')}
           className="mb-3 flex items-center gap-1 text-sm text-surface-400 hover:text-surface-200"
         >
           <svg
@@ -152,11 +158,11 @@ export function ProyectoDetailPage() {
               </h1>
               <span
                 className={[
-                  "rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
+                  'rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider',
                   esActivo
-                    ? "bg-success/20 text-success"
-                    : "bg-surface-700 text-surface-300",
-                ].join(" ")}
+                    ? 'bg-success/20 text-success'
+                    : 'bg-surface-700 text-surface-300',
+                ].join(' ')}
               >
                 {proyectoActivo.estado}
               </span>
@@ -170,12 +176,12 @@ export function ProyectoDetailPage() {
 
             <div className="mt-3 flex items-center gap-4 text-xs text-surface-500">
               <span>
-                {proyectoActivo.miembros.length}{" "}
-                {proyectoActivo.miembros.length === 1 ? "miembro" : "miembros"}
+                {proyectoActivo.miembros.length}{' '}
+                {proyectoActivo.miembros.length === 1 ? 'miembro' : 'miembros'}
               </span>
               <span>
-                {diagramas.length}{" "}
-                {diagramas.length === 1 ? "diagrama" : "diagramas"}
+                {diagramas.length}{' '}
+                {diagramas.length === 1 ? 'diagrama' : 'diagramas'}
               </span>
             </div>
           </div>
@@ -195,7 +201,7 @@ export function ProyectoDetailPage() {
                 size="sm"
                 onClick={() => void handleArchivar()}
               >
-                {esActivo ? "Archivar" : "Reactivar"}
+                {esActivo ? 'Archivar' : 'Reactivar'}
               </Button>
             )}
 

@@ -9,9 +9,13 @@
  * - Zoom in / out / reset
  * - Ajustar vista
  * - Toggle grid
+ *
+ * Se renderiza DENTRO de <ReactFlow> (ver DiagramCanvas), por eso
+ * useReactFlow() resuelve el contexto del Provider.
  */
 
 import { useReactFlow } from '@xyflow/react';
+import type { ReactNode } from 'react';
 
 import { useDiagramaStore, useUIStore } from '@/store';
 
@@ -22,7 +26,7 @@ export function CanvasToolbar() {
   const setModoEditor = useDiagramaStore((s) => s.setModoEditor);
 
   const mostrarGrid = useUIStore((s) => s.mostrarGrid);
-  const toggleGrid = useUIStore((s) => s.toggleGrid);
+  const alternarGrid = useUIStore((s) => s.alternarGrid);
 
   return (
     <div className="pointer-events-auto absolute left-4 top-4 z-10 flex flex-col gap-1 rounded-md border border-surface-800 bg-surface-900/95 p-1 shadow-lg backdrop-blur-sm">
@@ -107,7 +111,7 @@ export function CanvasToolbar() {
       <div className="mx-1 my-0.5 h-px bg-surface-800" />
 
       {/* -------- Toggle grid -------- */}
-      <ToolbarButton active={mostrarGrid} onClick={toggleGrid} title="Mostrar/Ocultar grilla">
+      <ToolbarButton active={mostrarGrid} onClick={alternarGrid} title="Mostrar/Ocultar grilla">
         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
         </svg>
@@ -120,7 +124,7 @@ export function CanvasToolbar() {
 // Botón interno
 // ======================================================================
 interface ToolbarButtonProps {
-  children: React.ReactNode;
+  children: ReactNode;
   onClick: () => void;
   title?: string;
   active?: boolean;
