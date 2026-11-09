@@ -12,8 +12,9 @@
  * - El backend llama EstadoGeneracion al Literal de 4 estados; aquí se
  *   tipa como EstadoTrabajoGeneracion y el DTO liviano de polling
  *   (EstadoGeneracionResponse) se espeja como EstadoGeneracion.
- * - StackDestino es Literal de un solo valor en el schema (el modelo
- *   acepta texto libre porque CU24 añadirá "REACT_TS_VITE").
+ * - StackDestino: Literal de 2 valores desde la Tanda B21 del backend
+ *   (el MISMO POST /generar despacha: SPRING_BOOT_JPA_POSTGRES →
+ *   GeneratorService, REACT_TS_VITE → GeneradorFrontendService CU24).
  * - Defaults del backend: incluir_postman=true, es_nulleable=true,
  *   es_clave_primaria=false, progreso 0-100.
  */
@@ -30,7 +31,9 @@ export type EstadoTrabajoGeneracion =
   | 'EXITOSO'
   | 'FALLIDO';
 
-export type StackDestino = 'SPRING_BOOT_JPA_POSTGRES';
+// Tanda B21 del backend: el POST /generar hace dispatch por stack_destino
+// (SPRING → backend Java, REACT → frontend React CRUD con templates_react).
+export type StackDestino = 'SPRING_BOOT_JPA_POSTGRES' | 'REACT_TS_VITE';
 
 // ======================================================================
 // Regla de mapeo (ReglaMapeoResponse — embebida en EntidadGenerada)
@@ -90,6 +93,19 @@ export interface GenerarBackendRequest {
   package_base?: string;
 }
 
+/**
+ * Payload para disparar la generación de FRONTEND React (CU24, Tanda B21
+ * del backend). Es el MISMO endpoint POST /generacion/diagramas/{id}/generar
+ * con stack_destino="REACT_TS_VITE": package_base e incluir_postman NO
+ * aplican al stack frontend y el backend los ignora (documentado en el
+ * docstring del router). Solo se exponen los campos con efecto real.
+ */
+export interface GenerarFrontendRequest {
+  stack_destino: 'REACT_TS_VITE';
+  /** Nombre simbólico del proyecto generado (opcional, máx 100) */
+  nombre_proyecto?: string;
+}
+
 // ======================================================================
 // Estado liviano (EstadoGeneracionResponse — para polling)
 // ======================================================================
@@ -112,4 +128,10 @@ export interface DescargaProyecto {
   download_url: string;
   tamanio_bytes: number | null;
   incluye_postman: boolean;
+  /**
+   * Nombre real del ZIP en el servidor (Tanda B22 del backend, ej.
+   * frontend_ventas_6aee…_20261107_143454.zip). El /archivo lo manda
+   * además en Content-Disposition (expuesto por CORS desde B22).
+   */
+  nombre_archivo: string | null;
 }

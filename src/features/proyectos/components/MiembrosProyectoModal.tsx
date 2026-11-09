@@ -2,27 +2,39 @@
 /**
  * Modal para gestionar los miembros de un proyecto.
  *
- * - Lista los miembros actuales con su rol.
+ * - Lista los miembros actuales con su rol (nombre/email resueltos por
+ *   el backend desde la Tanda B23: MiembroProyecto trae nombre_usuario
+ *   y email_usuario).
  * - Permite al PROPIETARIO cambiar roles y quitar miembros.
- * - Permite agregar un nuevo miembro por usuario (o por id).
+ * - Permite agregar un miembro con BUSCADOR (Tanda B23): consulta
+ *   GET /proyectos/{id}/candidatos?buscar= (usuarios activos que aún no
+ *   son miembros) con debounce de 300 ms.
+ *
+ * ⚠️ YA NO se llama `usuariosApi.listar` (GET /usuarios): ese endpoint
+ * es solo-ADMIN y un PROPIETARIO con rol global DESARROLLADOR recibía
+ * 403 (punto 4 del reporte de pruebas del 2026-11-07). Si el endpoint
+ * de candidatos falla igualmente (backend viejo, red), cae al input
+ * manual del id para no bloquear el flujo.
  *
  * Contrato Ciclo 2 (proyecto_schema.py):
  * - MiembroProyecto es EMBEBIDO: solo trae id_usuario + rol_en_proyecto
- *   + joined_at — SIN id propio y SIN usuario anidado. El miembro se
+ *   + joined_at (+ datos visuales B23) — SIN id propio. El miembro se
  *   identifica por id_usuario en los endpoints de miembros.
- * - Los nombres/emails se resuelven en el cliente con la lista de
- *   usuarios cargada (solo-ADMIN) + el usuario de la sesión; si no se
- *   puede resolver, se muestra el id.
  */
 
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 
 import Avatar from '@/components/Avatar';
 import Button from '@/components/Button';
 import Modal from '@/components/Modal';
-import { usuariosApi } from '@/api';
+import { proyectosApi } from '@/api';
 import { useAuthStore, useProyectoStore, toast } from '@/store';
-import type { Id, MiembroProyecto, RolEnProyecto, Usuario } from '@/types';
+import type {
+  Id,
+  MiembroProyecto,
+  RolEnProyecto,
+  UsuarioCandidato,
+} from '@/types';
 
 // ======================================================================
 // Tipos
@@ -40,6 +52,11 @@ const ROL_LABEL: Record<RolEnProyecto, string> = {
   EDITOR: 'Editor',
   LECTOR: 'Lector',
 };
+
+/** Milisegundos de espera tras la última tecla antes de buscar. */
+const DEBOUNCE_MS = 300;
+/** Límite del backend para candidatos (1..50). */
+const LIMIT_CANDIDATOS = 50;
 
 // ======================================================================
 // Componente
@@ -62,18 +79,22 @@ export function MiembrosProyectoModal({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // --- Tanda B23: buscador de candidatos -------------------------------
+  const [busqueda, setBusqueda] = useState('');
+  const [candidatos, setCandidatos] = useState<UsuarioCandidato[]>([]);
+  const [cargandoCandidatos, setCargandoCandidatos] = useState(false);
+  const [errorCandidatos, setErrorCandidatos] = useState<string | null>(null);
+  // Modo degradado: si /candidatos falla, se habilita el input manual.
+  const [usarInputManual, setUsarInputManual] = useState(false);
+
   const miembros = proyectoActivo?.miembros ?? [];
 
   // Rol del usuario actual en este proyecto
   const miMiembro = miembros.find((m) => m.id_usuario === usuarioActual?.id);
   const puedoGestionar = miMiembro?.rol_en_proyecto === 'PROPIETARIO';
 
-  const [usuariosDisponibles, setUsuariosDisponibles] = useState<Usuario[]>([]);
-  const [cargandoUsuarios, setCargandoUsuarios] = useState(false);
-  const [puedeListarUsuarios, setPuedeListarUsuarios] = useState(true);
-
   // Cargar miembros al abrir (el store protege contra recargas del
-  // mismo id con `idCargado`)
+  // mismo id con `idCargado`) + resetear el buscador al cerrar.
   useEffect(() => {
     if (!open || !proyectoId) return;
     void cargarProyectoActivo(proyectoId);
@@ -81,40 +102,68 @@ export function MiembrosProyectoModal({
   }, [open, proyectoId]);
 
   useEffect(() => {
-    if (!open) return;
-
-    async function cargarUsuarios() {
-      setCargandoUsuarios(true);
-      try {
-        const { items } = await usuariosApi.listar({
-          limit: 200,
-          solo_activos: true,
-        });
-        setUsuariosDisponibles(items);
-        setPuedeListarUsuarios(true);
-      } catch {
-        // Si no es ADMIN, el backend devuelve 403. Caemos al input de ID.
-        setPuedeListarUsuarios(false);
-        setUsuariosDisponibles([]);
-      } finally {
-        setCargandoUsuarios(false);
-      }
+    if (!open) {
+      setBusqueda('');
+      setCandidatos([]);
+      setErrorCandidatos(null);
+      setUsarInputManual(false);
+      setIdUsuarioNuevo('');
+      setRolNuevo('EDITOR');
+      setError(null);
     }
-
-    void cargarUsuarios();
   }, [open]);
 
   // ------------------------------------------------------------------
-  // Resolución de nombres: MiembroProyecto NO trae el usuario anidado,
-  // así que armamos un mapa id → Usuario con la lista cargada (ADMIN)
-  // y el usuario de la sesión.
+  // Búsqueda de candidatos con debounce (solo si puedoGestionar: el
+  // endpoint exige PROPIETARIO o ADMIN — para el resto daría 403).
   // ------------------------------------------------------------------
-  const usuariosPorId = useMemo(() => {
-    const mapa = new Map<Id, Usuario>();
-    if (usuarioActual) mapa.set(usuarioActual.id, usuarioActual);
-    for (const u of usuariosDisponibles) mapa.set(u.id, u);
-    return mapa;
-  }, [usuarioActual, usuariosDisponibles]);
+  useEffect(() => {
+    if (!open || !puedoGestionar || usarInputManual) return;
+
+    let vigente = true;
+    const temporizador = setTimeout(() => {
+      setCargandoCandidatos(true);
+      setErrorCandidatos(null);
+      proyectosApi
+        .listarCandidatos(proyectoId, {
+          buscar: busqueda.trim() || undefined,
+          limit: LIMIT_CANDIDATOS,
+        })
+        .then((items) => {
+          if (vigente) setCandidatos(items);
+        })
+        .catch(() => {
+          if (vigente) {
+            setErrorCandidatos(
+              'No se pudo cargar la lista de usuarios; ingresá el ID manualmente.'
+            );
+            setUsarInputManual(true);
+            setCandidatos([]);
+          }
+        })
+        .finally(() => {
+          if (vigente) setCargandoCandidatos(false);
+        });
+    }, DEBOUNCE_MS);
+
+    return () => {
+      vigente = false;
+      clearTimeout(temporizador);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, proyectoId, busqueda, puedoGestionar, usarInputManual]);
+
+  // ------------------------------------------------------------------
+  // Nombre visible de un miembro: el backend B23 lo resuelve; si no
+  // pudo (usuario borrado), cae al usuario de la sesión o al id.
+  // ------------------------------------------------------------------
+  function nombreDeMiembro(m: MiembroProyecto): string {
+    if (m.nombre_usuario) return m.nombre_usuario;
+    if (m.id_usuario === usuarioActual?.id) {
+      return usuarioActual?.nombre_completo ?? 'Vos';
+    }
+    return `Usuario ${m.id_usuario}`;
+  }
 
   // ------------------------------------------------------------------
   // Agregar miembro (firma del store: agregarMiembro(proyectoId,
@@ -126,7 +175,7 @@ export function MiembrosProyectoModal({
 
     const id = idUsuarioNuevo.trim();
     if (!id) {
-      setError('Seleccioná o ingresá un ID de usuario válido');
+      setError('Seleccioná un usuario de la lista');
       return;
     }
 
@@ -137,6 +186,9 @@ export function MiembrosProyectoModal({
       toast.success('Miembro agregado');
       setIdUsuarioNuevo('');
       setRolNuevo('EDITOR');
+      // Refrescar la lista para que el nuevo miembro aparezca con su
+      // nombre (y los candidatos se recargan: ya no es candidato).
+      await cargarProyectoActivo(proyectoId);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'No se pudo agregar el miembro'
@@ -165,9 +217,10 @@ export function MiembrosProyectoModal({
   // ------------------------------------------------------------------
   async function handleQuitar(miembro: MiembroProyecto) {
     const esYoMismo = miembro.id_usuario === usuarioActual?.id;
+    const nombre = nombreDeMiembro(miembro);
     const mensaje = esYoMismo
       ? '¿Seguro que querés salir del proyecto?'
-      : `¿Quitar a este miembro del proyecto?`;
+      : `¿Quitar a ${nombre} del proyecto?`;
 
     if (!window.confirm(mensaje)) return;
 
@@ -201,8 +254,8 @@ export function MiembrosProyectoModal({
         {miembros.map((m) => {
           const esYo = m.id_usuario === usuarioActual?.id;
           const esPropietario = m.rol_en_proyecto === 'PROPIETARIO';
-          const datos = usuariosPorId.get(m.id_usuario);
-          const nombre = datos?.nombre_completo ?? `Usuario ${m.id_usuario}`;
+          const nombre = nombreDeMiembro(m);
+          const email = m.email_usuario ?? (esYo ? usuarioActual?.email : null);
 
           return (
             <div
@@ -216,10 +269,8 @@ export function MiembrosProyectoModal({
                   {nombre}{' '}
                   {esYo && <span className="text-surface-500">(vos)</span>}
                 </p>
-                {datos?.email && (
-                  <p className="truncate text-xs text-surface-500">
-                    {datos.email}
-                  </p>
+                {email && (
+                  <p className="truncate text-xs text-surface-500">{email}</p>
                 )}
               </div>
 
@@ -301,44 +352,60 @@ export function MiembrosProyectoModal({
             onSubmit={handleAgregar}
             className="flex flex-col gap-2 sm:flex-row"
           >
-            {puedeListarUsuarios ? (
-              <select
-                value={idUsuarioNuevo}
-                onChange={(e) => {
-                  setIdUsuarioNuevo(e.target.value);
-                  if (error) setError(null);
-                }}
-                className="input-base flex-1"
-                disabled={isLoading || cargandoUsuarios}
-              >
-                <option value="">
-                  {cargandoUsuarios
-                    ? 'Cargando usuarios…'
-                    : 'Seleccioná un usuario…'}
-                </option>
-                {usuariosDisponibles
-                  .filter((u) => !miembros.some((m) => m.id_usuario === u.id))
-                  .map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.nombre_completo} ({u.email})
+            <div className="flex-1 space-y-2">
+              {usarInputManual ? (
+                // Modo degradado: /candidatos falló (backend viejo o red).
+                <input
+                  type="text"
+                  value={idUsuarioNuevo}
+                  onChange={(e) => {
+                    setIdUsuarioNuevo(e.target.value);
+                    if (error) setError(null);
+                  }}
+                  placeholder="ID del usuario (ObjectId)"
+                  className="input-base w-full"
+                  disabled={isLoading}
+                />
+              ) : (
+                <>
+                  {/* Buscador: filtra por nombre o email con debounce */}
+                  <input
+                    type="search"
+                    value={busqueda}
+                    onChange={(e) => setBusqueda(e.target.value)}
+                    placeholder="Buscar usuario por nombre o email…"
+                    className="input-base w-full"
+                    disabled={isLoading}
+                    autoComplete="off"
+                  />
+                  <select
+                    value={idUsuarioNuevo}
+                    onChange={(e) => {
+                      setIdUsuarioNuevo(e.target.value);
+                      if (error) setError(null);
+                    }}
+                    className="input-base w-full"
+                    disabled={isLoading || cargandoCandidatos}
+                    size={Math.min(Math.max(candidatos.length, 3), 6)}
+                  >
+                    <option value="">
+                      {cargandoCandidatos
+                        ? 'Buscando usuarios…'
+                        : candidatos.length === 0
+                          ? busqueda.trim()
+                            ? 'Sin resultados para esa búsqueda'
+                            : 'Todos los usuarios ya son miembros'
+                          : `${candidatos.length} usuario(s) disponible(s) — elegí uno`}
                     </option>
-                  ))}
-              </select>
-            ) : (
-              // Sin permisos de listado (no-ADMIN): input manual del id
-              // (string hex de ObjectId, no numérico)
-              <input
-                type="text"
-                value={idUsuarioNuevo}
-                onChange={(e) => {
-                  setIdUsuarioNuevo(e.target.value);
-                  if (error) setError(null);
-                }}
-                placeholder="ID del usuario (no tenés permisos para listarlos)"
-                className="input-base flex-1"
-                disabled={isLoading}
-              />
-            )}
+                    {candidatos.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.nombre_completo} ({u.email})
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
+            </div>
 
             <select
               value={rolNuevo}
@@ -363,9 +430,13 @@ export function MiembrosProyectoModal({
             </Button>
           </form>
 
+          {errorCandidatos && (
+            <p className="mt-2 text-xs text-amber-400">{errorCandidatos}</p>
+          )}
+
           <p className="mt-2 text-xs text-surface-500">
-            El backend usa EDITOR por defecto; acá podés elegir Editor o
-            Lector.
+            Buscá por nombre o email (solo usuarios activos que aún no son
+            miembros) y elegí el rol: Editor o Lector.
           </p>
         </div>
       )}

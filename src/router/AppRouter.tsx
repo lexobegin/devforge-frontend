@@ -28,6 +28,7 @@ import { GeneracionStatusPage } from '@/features/generacion-codigo/GeneracionSta
 import { NotificacionesPage } from '@/features/notificaciones/NotificacionesPage';
 import { AuditoriaPage } from '@/features/auditoria/AuditoriaPage';
 import { UsuariosPage } from '@/features/usuarios/UsuariosPage';
+import { AdminArchivosPage } from '@/features/admin/AdminArchivosPage';
 import { useAuthStore } from '@/store';
 
 // ----------------------------------------------------------------------
@@ -122,6 +123,15 @@ export default function AppRouter() {
           element={
             <RequireAdmin>
               <AuditoriaPage />
+            </RequireAdmin>
+          }
+        />
+        {/* Tanda F60: administración de archivos del servidor (B24) */}
+        <Route
+          path="/admin/archivos"
+          element={
+            <RequireAdmin>
+              <AdminArchivosPage />
             </RequireAdmin>
           }
         />

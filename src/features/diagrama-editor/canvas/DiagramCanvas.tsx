@@ -218,12 +218,8 @@ function DiagramCanvasInner() {
           id_clase_destino: destinoId,
           tipo_relacion: 'ASOCIACION',
         });
-        emisores.evento?.('relation_created', {
-          id: relacionCreada.id,
-          id_clase_origen: relacionCreada.id_clase_origen,
-          id_clase_destino: relacionCreada.id_clase_destino,
-          tipo_relacion: relacionCreada.tipo_relacion,
-        });
+        // FIX F58: relación COMPLETA (los campos nuleables incluidos).
+        emisores.evento?.('relation_created', { ...relacionCreada });
         toast.success('Relación creada');
       } catch (err) {
         toast.error(
@@ -253,12 +249,11 @@ function DiagramCanvasInner() {
           pos_x: Math.round(position.x * 100) / 100,
           pos_y: Math.round(position.y * 100) / 100,
         });
-        emisores.evento?.('class_created', {
-          id: claseCreada.id,
-          nombre: claseCreada.nombre,
-          pos_x: claseCreada.pos_x,
-          pos_y: claseCreada.pos_y,
-        });
+        // FIX F58: se emite la clase COMPLETA (respuesta REST de crearClase).
+        // Antes solo { id, nombre, pos_x, pos_y } → el compañero insertaba
+        // una clase sin atributos/operaciones y ClassNode crasheaba con
+        // "Cannot read properties of undefined (reading 'length')".
+        emisores.evento?.('class_created', { ...claseCreada });
 
         toast.success(`Clase "${nombre.trim()}" creada`);
         setModoEditor('select');

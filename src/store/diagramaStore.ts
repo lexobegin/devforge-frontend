@@ -117,10 +117,10 @@ interface DiagramaState {
   actualizarInterfaz: (interfazId: Id, payload: InterfazUMLUpdate) => Promise<void>;
   eliminarInterfaz: (interfazId: Id) => Promise<void>;
 
-  // Cambios remotos (WebSocket)
-  aplicarClaseRemota: (clase: ClaseUML) => void;
+  // Cambios remotos (WebSocket) — aceptan payloads PARCIALES (F58)
+  aplicarClaseRemota: (clase: ClaseRemota) => void;
   aplicarClaseEliminada: (claseId: Id) => void;
-  aplicarRelacionRemota: (relacion: RelacionUML) => void;
+  aplicarRelacionRemota: (relacion: RelacionRemota) => void;
   aplicarRelacionEliminada: (relacionId: Id) => void;
 
   // Utilidades
@@ -177,6 +177,76 @@ function _upsert<T extends { id: Id }>(lista: T[], elemento: T): T[] {
   if (idx === -1) return [...lista, elemento];
   const copia = [...lista];
   copia[idx] = elemento;
+  return copia;
+}
+
+// ----------------------------------------------------------------------
+// Normalización de eventos remotos (FIX F58)
+// ----------------------------------------------------------------------
+/**
+ * Clase PARCIAL que puede llegar por WS: el emisor manda lo mínimo
+ * (p. ej. DiagramCanvas emitía solo { id, nombre, pos_x, pos_y }), que
+ * NO cumple ClaseUML completa.
+ */
+type ClaseRemota = Partial<ClaseUML> & Pick<ClaseUML, 'id' | 'nombre'>;
+
+/** Relación PARCIAL por WS (los campos opcionales pueden faltar). */
+type RelacionRemota = Partial<RelacionUML> &
+  Pick<RelacionUML, 'id' | 'id_clase_origen' | 'id_clase_destino' | 'tipo_relacion'>;
+
+/**
+ * FIX F58: completa una clase remota con los defaults de ClaseUML.
+ * Insertar el payload crudo dejaba `atributos`/`operaciones` undefined y
+ * ClassNode reventaba con "Cannot read properties of undefined (reading
+ * 'length')" en el compañero → lienzo en blanco hasta F5 (bug de la
+ * prueba colaborativa del 2026-11-07).
+ */
+function _normalizarClaseRemota(bruta: ClaseRemota): ClaseUML {
+  return {
+    es_abstracta: false,
+    estereotipo: null,
+    pos_x: 0,
+    pos_y: 0,
+    id_creador: null,
+    created_at: '',
+    updated_at: '',
+    ...bruta,
+    atributos: bruta.atributos ?? [],
+    operaciones: bruta.operaciones ?? [],
+  };
+}
+
+/** FIX F58: completa una relación remota con sus campos nuleables. */
+function _normalizarRelacionRemota(bruta: RelacionRemota): RelacionUML {
+  return {
+    ...bruta,
+    multiplicidad_origen: bruta.multiplicidad_origen ?? null,
+    multiplicidad_destino: bruta.multiplicidad_destino ?? null,
+    nombre_asociacion: bruta.nombre_asociacion ?? null,
+    rol_origen: bruta.rol_origen ?? null,
+    rol_destino: bruta.rol_destino ?? null,
+  };
+}
+
+/**
+ * Upsert remoto de clase con semántica MERGE: si ya existe, los campos
+ * presentes del evento pisan a los locales, pero una clase PARCIAL (sin
+ * atributos en el payload) NO borra los atributos/operaciones que el
+ * compañero ya tenía.
+ */
+function _upsertClaseRemota(lista: ClaseUML[], clase: ClaseUML): ClaseUML[] {
+  const idx = lista.findIndex((c) => c.id === clase.id);
+  if (idx === -1) return [...lista, clase];
+  const copia = [...lista];
+  const previa = copia[idx];
+  copia[idx] = {
+    ...previa,
+    ...clase,
+    atributos:
+      clase.atributos.length > 0 ? clase.atributos : previa.atributos,
+    operaciones:
+      clase.operaciones.length > 0 ? clase.operaciones : previa.operaciones,
+  };
   return copia;
 }
 
@@ -638,7 +708,7 @@ export const useDiagramaStore = create<DiagramaState>()((set, get) => ({
   // Cambios remotos (WebSocket — NO marcan cambios pendientes)
   // ------------------------------------------------------------------
   aplicarClaseRemota: (clase) =>
-    set((s) => ({ clases: _upsert(s.clases, clase) })),
+    set((s) => ({ clases: _upsertClaseRemota(s.clases, _normalizarClaseRemota(clase)) })),
 
   aplicarClaseEliminada: (claseId) =>
     set((s) => {
@@ -655,7 +725,9 @@ export const useDiagramaStore = create<DiagramaState>()((set, get) => ({
     }),
 
   aplicarRelacionRemota: (relacion) =>
-    set((s) => ({ relaciones: _upsert(s.relaciones, relacion) })),
+    set((s) => ({
+      relaciones: _upsert(s.relaciones, _normalizarRelacionRemota(relacion)),
+    })),
 
   aplicarRelacionEliminada: (relacionId) =>
     set((s) => ({

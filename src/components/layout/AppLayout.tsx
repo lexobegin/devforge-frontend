@@ -1,4 +1,3 @@
-
 // src/components/layout/AppLayout.tsx
 /**
  * Layout de páginas autenticadas.
@@ -15,6 +14,7 @@ import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import Toaster from '@/components/Toaster';
 import Navbar from '@/components/layout/Navbar';
 import Sidebar from '@/components/layout/Sidebar';
+import AsistenteFlotante from '@/components/layout/AsistenteFlotante';
 import { useAuthStore } from '@/store';
 
 export function AppLayout() {
@@ -37,6 +37,10 @@ export function AppLayout() {
       </div>
 
       <Toaster />
+
+      {/* FAB del asistente IA (F56): oculto en el editor, que tiene el
+          suyo en el header con el diagrama activo. */}
+      <AsistenteFlotante />
     </div>
   );
 }

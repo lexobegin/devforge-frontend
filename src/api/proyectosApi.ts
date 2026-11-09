@@ -12,6 +12,7 @@
  *   POST   /proyectos/{id}/reactivar                   → Proyecto
  *   DELETE /proyectos/{id}                             → 204
  *   GET    /proyectos/{id}/miembros                    → MiembroProyecto[]
+ *   GET    /proyectos/{id}/candidatos                  → UsuarioCandidato[] (B23)
  *   POST   /proyectos/{id}/miembros                    → 201 MiembroProyecto
  *   PUT    /proyectos/{id}/miembros/{miembro_id}       → MiembroProyecto
  *   DELETE /proyectos/{id}/miembros/{miembro_id}       → 204
@@ -24,6 +25,7 @@
 
 import { http } from './httpClient';
 import type {
+  CandidatosQuery,
   Id,
   MiembroProyecto,
   MiembroProyectoCreate,
@@ -34,6 +36,7 @@ import type {
   ProyectoCreate,
   ProyectoUpdate,
   ProyectosQuery,
+  UsuarioCandidato,
 } from '@/types';
 
 export const proyectosApi = {
@@ -81,6 +84,22 @@ export const proyectosApi = {
   /** Lista los miembros del proyecto. */
   listarMiembros(proyectoId: Id): Promise<MiembroProyecto[]> {
     return http.get<MiembroProyecto[]>(`/proyectos/${proyectoId}/miembros`);
+  },
+
+  /**
+   * Tanda B23: candidatos a miembro (usuarios activos que AÚN no son
+   * miembros), con búsqueda opcional por nombre/email. Repara el 403
+   * del modal: sustituye a `usuariosApi.listar` (solo-ADMIN) para el
+   * PROPIETARIO con rol global DESARROLLADOR.
+   */
+  listarCandidatos(
+    proyectoId: Id,
+    params: CandidatosQuery = {}
+  ): Promise<UsuarioCandidato[]> {
+    return http.get<UsuarioCandidato[]>(
+      `/proyectos/${proyectoId}/candidatos`,
+      { params }
+    );
   },
 
   /** Agrega un miembro al proyecto (solo PROPIETARIO). */

@@ -16,6 +16,12 @@
  *
  * CONTRATO CICLO 2: el id del trabajo es ObjectId hex (string) — se lee de
  * la ruta /generacion/:trabajoId SIN parseInt.
+ *
+ * TANDA F57 (par de la B21 del backend): el trabajo puede ser de BACKEND
+ * (SPRING_BOOT_JPA_POSTGRES) o de FRONTEND (REACT_TS_VITE, CU24). El
+ * endpoint /estado no trae stack, pero el detalle (GET /trabajos/{id}) sí
+ * — los textos de la pantalla se ajustan al stack del detalle; mientras
+ * no hay detalle se muestran textos neutros.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -159,10 +165,15 @@ export function GeneracionStatusPage() {
         </button>
 
         <h1 className="text-2xl font-bold text-surface-100">
-          Generación de backend
+          Generación de código
         </h1>
         <p className="mt-1 text-sm text-surface-400">
-          Trabajo {id} · Spring Boot + JPA + PostgreSQL
+          Trabajo {id}
+          {detalle
+            ? detalle.stack_destino === 'REACT_TS_VITE'
+              ? ' · React + Vite + TypeScript (frontend CRUD)'
+              : ' · Spring Boot + JPA + PostgreSQL'
+            : ''}
         </p>
       </div>
 
@@ -176,7 +187,9 @@ export function GeneracionStatusPage() {
           <div className="mt-6 rounded-lg border border-surface-800 bg-surface-900/40 p-4">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-base font-semibold text-surface-100">
-                Backend generado
+                {detalle.stack_destino === 'REACT_TS_VITE'
+                  ? 'Frontend generado'
+                  : 'Backend generado'}
               </h2>
               <span className="rounded bg-success/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-success">
                 Listo
@@ -186,7 +199,11 @@ export function GeneracionStatusPage() {
             <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
               <Stat label="Entidades" value={detalle.entidades.length} />
               <Stat
-                label="Tablas"
+                label={
+                  detalle.stack_destino === 'REACT_TS_VITE'
+                    ? 'Recursos REST'
+                    : 'Tablas'
+                }
                 value={
                   new Set(detalle.entidades.map((e) => e.nombre_tabla)).size
                 }
@@ -198,7 +215,14 @@ export function GeneracionStatusPage() {
                   0
                 )}
               />
-              <Stat label="Stack" value="Spring Boot" />
+              <Stat
+                label="Stack"
+                value={
+                  detalle.stack_destino === 'REACT_TS_VITE'
+                    ? 'React + Vite + TS'
+                    : 'Spring Boot'
+                }
+              />
             </div>
 
             {/* Tabla de entidades */}
@@ -208,10 +232,14 @@ export function GeneracionStatusPage() {
                   <thead className="bg-surface-800/50">
                     <tr>
                       <th className="px-3 py-2 text-left font-semibold text-surface-300">
-                        Clase Java
+                        {detalle.stack_destino === 'REACT_TS_VITE'
+                          ? 'Entidad (tipo TS)'
+                          : 'Clase Java'}
                       </th>
                       <th className="px-3 py-2 text-left font-semibold text-surface-300">
-                        Tabla PostgreSQL
+                        {detalle.stack_destino === 'REACT_TS_VITE'
+                          ? 'Recurso REST'
+                          : 'Tabla PostgreSQL'}
                       </th>
                       <th className="px-3 py-2 text-right font-semibold text-surface-300">
                         Campos
@@ -241,9 +269,13 @@ export function GeneracionStatusPage() {
             )}
           </div>
 
-          {/* Descarga */}
+          {/* Descarga (F58: stackDestino decide el nombre de respaldo
+              del ZIP si Content-Disposition no es legible) */}
           <div className="mt-6 flex justify-end">
-            <DescargarProyectoButton trabajoId={detalle.id} />
+            <DescargarProyectoButton
+              trabajoId={detalle.id}
+              stackDestino={detalle.stack_destino}
+            />
           </div>
         </>
       )}
@@ -378,14 +410,14 @@ const ESTADO_CONFIG: Record<
   EN_PROCESO: {
     label: 'Generando…',
     descripcion:
-      'Se está generando el backend a partir del diagrama. Puede tardar unos segundos.',
+      'Se está generando el código a partir del diagrama. Puede tardar unos segundos.',
     textClass: 'text-brand-300',
     borderClass: 'border-brand-500/40',
     bgClass: 'bg-brand-500/5',
   },
   EXITOSO: {
     label: 'Generación completada',
-    descripcion: 'El backend está listo para descargar.',
+    descripcion: 'El proyecto está listo para descargar.',
     textClass: 'text-success',
     borderClass: 'border-success/40',
     bgClass: 'bg-success/5',

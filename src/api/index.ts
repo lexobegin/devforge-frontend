@@ -50,6 +50,8 @@ export {
   type ImportacionResultado,
 } from './intercambioApi';
 export { generacionApi } from './generacionApi';
+// Tanda F60: administración de archivos del servidor (solo ADMIN).
+export { adminApi } from './adminApi';
 export {
   notificacionesApi,
   type TipoNotificacion,

@@ -47,6 +47,8 @@ export type {
   MiembroProyectoCreate,
   MiembroProyectoUpdate,
   ProyectosQuery,
+  UsuarioCandidato,
+  CandidatosQuery,
 } from './proyecto';
 
 // Diagramas
@@ -96,6 +98,15 @@ export type {
   TrabajoGeneracion,
   TrabajoGeneracionDetalle,
   GenerarBackendRequest,
+  GenerarFrontendRequest,
   EstadoGeneracion,
   DescargaProyecto,
 } from './generacion';
+
+// Administración de archivos (Tanda F60 — backend B24)
+export type {
+  TipoArchivoAdmin,
+  ArchivoAdmin,
+  ListadoArchivosAdmin,
+  ArchivosAdminQuery,
+} from './admin';

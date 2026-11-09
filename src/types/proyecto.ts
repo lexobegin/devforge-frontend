@@ -55,6 +55,13 @@ export interface MiembroProyecto {
   id_usuario: Id;
   rol_en_proyecto: RolEnProyecto;
   joined_at: ISODateString;
+  /**
+   * Tanda B23: nombre/email resueltos por el backend (join en memoria
+   * contra usuarios). Pueden venir undefined/null si el usuario fue
+   * eliminado — en ese caso el cliente muestra el id.
+   */
+  nombre_usuario?: string | null;
+  email_usuario?: string | null;
 }
 
 export interface MiembroProyectoCreate {
@@ -74,4 +81,23 @@ export interface MiembroProyectoUpdate {
 export interface ProyectosQuery extends PaginationParams {
   incluir_archivados?: boolean;
   todos?: boolean;
+}
+
+// ======================================================================
+// Tanda B23 — Candidatos a miembro (GET /proyectos/{id}/candidatos)
+// Repara el 403 del modal: GET /usuarios es solo-ADMIN; este endpoint
+// por proyecto exige PROPIETARIO y devuelve solo activos no-miembros.
+// ======================================================================
+export interface UsuarioCandidato {
+  id: Id;
+  nombre_completo: string;
+  email: string;
+  rol: 'ADMIN' | 'LIDER' | 'DESARROLLADOR';
+}
+
+export interface CandidatosQuery {
+  /** Texto libre: filtra por nombre o email (case-insensitive). */
+  buscar?: string;
+  /** 1..50 (el backend valida); default 20. */
+  limit?: number;
 }
