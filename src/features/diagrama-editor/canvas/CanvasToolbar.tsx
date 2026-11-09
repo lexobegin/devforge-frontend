@@ -6,6 +6,8 @@
  * - Seleccionar
  * - Agregar clase
  * - Agregar relación
+ * - Agregar interfaz
+ * - Ordenar automáticamente (F55: elkjs layered, arriba→abajo)
  * - Zoom in / out / reset
  * - Ajustar vista
  * - Toggle grid
@@ -14,10 +16,12 @@
  * useReactFlow() resuelve el contexto del Provider.
  */
 
+import { useCallback, useState } from 'react';
 import { useReactFlow } from '@xyflow/react';
 import type { ReactNode } from 'react';
 
-import { useDiagramaStore, useUIStore } from '@/store';
+import { useDiagramaStore, useUIStore, toast } from '@/store';
+import { calcularLayout } from './autoLayout';
 
 export function CanvasToolbar() {
   const { zoomIn, zoomOut, fitView } = useReactFlow();
@@ -25,8 +29,68 @@ export function CanvasToolbar() {
   const modoEditor = useDiagramaStore((s) => s.modoEditor);
   const setModoEditor = useDiagramaStore((s) => s.setModoEditor);
 
+  // F55: layout automático (mueve las clases y persiste cada posición).
+  const clases = useDiagramaStore((s) => s.clases);
+  const relaciones = useDiagramaStore((s) => s.relaciones);
+  const moverClase = useDiagramaStore((s) => s.moverClase);
+  const actualizarClase = useDiagramaStore((s) => s.actualizarClase);
+  const [ordenando, setOrdenando] = useState(false);
+
   const mostrarGrid = useUIStore((s) => s.mostrarGrid);
   const alternarGrid = useUIStore((s) => s.alternarGrid);
+
+  // ------------------------------------------------------------------
+  // Ordenar automáticamente: calcular con ELK → aplicar en local →
+  // persistir cada posición (igual que al soltar un nodo). Los errores
+  // de una posición no abortan el resto (allSettled).
+  // ------------------------------------------------------------------
+  const ordenarAutomaticamente = useCallback(async () => {
+    if (ordenando) return;
+    if (clases.length === 0) {
+      toast.info('No hay clases para ordenar');
+      return;
+    }
+
+    setOrdenando(true);
+    try {
+      const posiciones = await calcularLayout(clases, relaciones);
+
+      for (const [claseId, pos] of posiciones) {
+        moverClase(claseId, pos.x, pos.y);
+      }
+
+      const resultados = await Promise.allSettled(
+        [...posiciones.entries()].map(([claseId, pos]) =>
+          actualizarClase(claseId, { pos_x: pos.x, pos_y: pos.y })
+        )
+      );
+      const fallidas = resultados.filter(
+        (r) => r.status === 'rejected'
+      ).length;
+
+      void fitView({ padding: 0.2, duration: 300 });
+
+      if (fallidas === 0) {
+        toast.success(
+          `Diagrama ordenado (${posiciones.size} clase${
+            posiciones.size !== 1 ? 's' : ''
+          })`
+        );
+      } else {
+        toast.warning(
+          `Layout aplicado en local, pero ${fallidas} posición(es) no se pudieron guardar`
+        );
+      }
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : 'No se pudo calcular el layout del diagrama'
+      );
+    } finally {
+      setOrdenando(false);
+    }
+  }, [ordenando, clases, relaciones, moverClase, actualizarClase, fitView]);
 
   return (
     <div className="pointer-events-auto absolute left-4 top-4 z-10 flex flex-col gap-1 rounded-md border border-surface-800 bg-surface-900/95 p-1 shadow-lg backdrop-blur-sm">
@@ -89,6 +153,26 @@ export function CanvasToolbar() {
 
       <div className="mx-1 my-0.5 h-px bg-surface-800" />
 
+      {/* -------- Ordenar automáticamente (F55, elkjs) -------- */}
+      <ToolbarButton
+        onClick={() => void ordenarAutomaticamente()}
+        disabled={ordenando}
+        title="Ordenar automáticamente (layout jerárquico)"
+      >
+        {ordenando ? (
+          <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+        ) : (
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+          </svg>
+        )}
+      </ToolbarButton>
+
+      <div className="mx-1 my-0.5 h-px bg-surface-800" />
+
       {/* -------- Zoom controls -------- */}
       <ToolbarButton onClick={() => void zoomIn()} title="Acercar">
         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -128,19 +212,29 @@ interface ToolbarButtonProps {
   onClick: () => void;
   title?: string;
   active?: boolean;
+  disabled?: boolean;
 }
 
-function ToolbarButton({ children, onClick, title, active }: ToolbarButtonProps) {
+function ToolbarButton({
+  children,
+  onClick,
+  title,
+  active,
+  disabled = false,
+}: ToolbarButtonProps) {
   return (
     <button
       type="button"
       onClick={onClick}
       title={title}
+      disabled={disabled}
       className={[
         'flex h-8 w-8 items-center justify-center rounded-md transition-colors',
-        active
-          ? 'bg-brand-600 text-white'
-          : 'text-surface-300 hover:bg-surface-800 hover:text-surface-100',
+        disabled
+          ? 'cursor-wait text-surface-500'
+          : active
+            ? 'bg-brand-600 text-white'
+            : 'text-surface-300 hover:bg-surface-800 hover:text-surface-100',
       ].join(' ')}
     >
       {children}

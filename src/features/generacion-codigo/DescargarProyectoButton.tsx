@@ -1,16 +1,23 @@
 // src/features/generacion-codigo/DescargarProyectoButton.tsx
 /**
- * Botón de descarga del backend generado (ZIP).
+ * Botón de descarga del proyecto generado (ZIP — backend Spring o
+ * frontend React, Tanda F58).
  *
  * Muestra el tamaño del ZIP si está disponible y hace la descarga como
  * blob para forzar el nombre del archivo.
  *
- * Contrato (app/api/v1/generacion_router.py, Ciclo 2):
+ * Contrato (app/api/v1/generacion_router.py, Ciclo 2 + B22):
  * - GET /generacion/trabajos/{id}/archivo → FileResponse (streaming del
  *   ZIP) y EXIGE JWT (get_current_active_user): la descarga va por
  *   `generacionApi.descargarArchivo()` (httpClient adjunta el
  *   Authorization automáticamente) — nunca window.open ni <a href>,
  *   que no enviarían el header.
+ * - FIX F58: el nombre del archivo descargado es el REAL que manda el
+ *   backend en Content-Disposition (main.py lo expone por CORS desde
+ *   B22) — ej. frontend_ventas_6aee…_20261107_143454.zip. Antes se
+ *   forzaba `devforge-backend-<id>.zip` para AMBOS stacks (bug de la
+ *   prueba del 2026-11-07). Si el header no llega, fallback: por
+ *   stackDestino → devforge-frontend|backend-<id>.zip.
  * - El backend valida trabajo EXITOSO + pertenencia antes de servir el
  *   archivo; si no, responde 404 (genérico, no revela trabajos ajenos).
  * - El tamaño opcional viene de GET /trabajos/{id}/descargar
@@ -22,7 +29,7 @@ import { useCallback, useState } from 'react';
 
 import Button from '@/components/Button';
 import { generacionApi } from '@/api';
-import type { Id } from '@/types';
+import type { Id, StackDestino } from '@/types';
 import { toast } from '@/store';
 
 // ======================================================================
@@ -33,6 +40,9 @@ interface DescargarProyectoButtonProps {
   trabajoId: Id;
   /** Tamaño del ZIP en bytes (si se conoce). */
   tamanioBytes?: number | null;
+  /** Stack del trabajo: decide el nombre de respaldo si el backend no
+   * manda Content-Disposition legible (Tanda F58). */
+  stackDestino?: StackDestino;
   /** Si el trabajo no está EXITOSO, el botón se deshabilita. */
   disabled?: boolean;
 }
@@ -43,6 +53,7 @@ interface DescargarProyectoButtonProps {
 export function DescargarProyectoButton({
   trabajoId,
   tamanioBytes,
+  stackDestino,
   disabled = false,
 }: DescargarProyectoButtonProps) {
   const [descargando, setDescargando] = useState(false);
@@ -53,7 +64,13 @@ export function DescargarProyectoButton({
     try {
       // generacionApi.descargarArchivo usa httpClient (Authorization
       // automático) con responseType 'blob' — crítico: descarga binaria.
-      const blob = await generacionApi.descargarArchivo(trabajoId);
+      const { blob, nombreArchivo } = await generacionApi.descargarArchivo(trabajoId);
+
+      // FIX F58: nombre REAL del ZIP (Content-Disposition, expuesto por
+      // CORS desde B22) → fallback por stack → último recurso genérico.
+      const prefijo = stackDestino === 'REACT_TS_VITE' ? 'frontend' : 'backend';
+      const nombre =
+        nombreArchivo ?? `devforge-${prefijo}-${trabajoId}.zip`;
 
       const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -64,7 +81,7 @@ export function DescargarProyectoButton({
       document.body.removeChild(a);
       window.URL.revokeObjectURL(downloadUrl);
 
-      toast.success('Descarga iniciada');
+      toast.success(`Descarga iniciada: ${nombre}`);
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : 'No se pudo descargar'
@@ -72,7 +89,7 @@ export function DescargarProyectoButton({
     } finally {
       setDescargando(false);
     }
-  }, [trabajoId, descargando]);
+  }, [trabajoId, stackDestino, descargando]);
 
   return (
     <Button

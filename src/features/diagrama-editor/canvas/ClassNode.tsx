@@ -52,6 +52,10 @@ const VIS_SIMBOLO: Record<string, string> = {
 export function ClassNode({ data, selected }: NodeProps<ClassNodeType>) {
   const { clase, seleccionadaPor } = data;
   const abstracta = clase.es_abstracta;
+  // FIX F58: defensivo — un payload remoto parcial no debe tumbar el
+  // lienzo (el store ya normaliza, esto es la segunda barrera).
+  const atributos = clase.atributos ?? [];
+  const operaciones = clase.operaciones ?? [];
 
   return (
     <div
@@ -109,9 +113,9 @@ export function ClassNode({ data, selected }: NodeProps<ClassNodeType>) {
       </div>
 
       {/* -------- Atributos -------- */}
-      {clase.atributos.length > 0 && (
+      {atributos.length > 0 && (
         <div className="border-b border-surface-700 px-3 py-1.5">
-          {clase.atributos.map((a) => (
+          {atributos.map((a) => (
             <p
               key={a.id}
               className="truncate text-[11px] leading-5 text-surface-300"
@@ -130,10 +134,10 @@ export function ClassNode({ data, selected }: NodeProps<ClassNodeType>) {
       )}
 
       {/* -------- Operaciones -------- */}
-      {clase.operaciones.length > 0 && (
+      {operaciones.length > 0 && (
         <div className="px-3 py-1.5">
-          {clase.operaciones.map((op) => {
-            const params = op.parametros
+          {operaciones.map((op) => {
+            const params = (op.parametros ?? [])
               .map((p) => `${p.nombre}: ${p.tipo_dato}`)
               .join(', ');
             return (

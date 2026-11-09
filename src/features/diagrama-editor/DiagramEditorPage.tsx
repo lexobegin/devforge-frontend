@@ -42,6 +42,7 @@ import { VersionHistoryPanel } from '@/features/trazabilidad/VersionHistoryPanel
 import { CommentsPanel } from '@/features/trazabilidad/CommentsPanel';
 
 import { GenerarBackendModal } from '@/features/generacion-codigo/GenerarBackendModal';
+import { GenerarFrontendModal } from '@/features/generacion-codigo/GenerarFrontendModal';
 
 type PanelDerecho = 'propiedades' | 'versiones' | 'comentarios';
 
@@ -68,6 +69,8 @@ export function DiagramEditorPage() {
   const [importModalAbierto, setImportModalAbierto] = useState(false);
 
   const [generarModalAbierto, setGenerarModalAbierto] = useState(false);
+  const [generarFrontendModalAbierto, setGenerarFrontendModalAbierto] =
+    useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -172,6 +175,14 @@ export function DiagramEditorPage() {
             Generar backend
           </Button>
           <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setGenerarFrontendModalAbierto(true)}
+            disabled={esSoloLectura}
+          >
+            Generar frontend
+          </Button>
+          <Button
             variant={aiPanelAbierto ? 'primary' : 'secondary'}
             size="sm"
             onClick={() => setAiPanelAbierto((v) => !v)}
@@ -218,6 +229,11 @@ export function DiagramEditorPage() {
       <GenerarBackendModal
         open={generarModalAbierto}
         onClose={() => setGenerarModalAbierto(false)}
+        diagramaId={diagrama.id}
+      />
+      <GenerarFrontendModal
+        open={generarFrontendModalAbierto}
+        onClose={() => setGenerarFrontendModalAbierto(false)}
         diagramaId={diagrama.id}
       />
     </div>

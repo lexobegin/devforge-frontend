@@ -11,6 +11,12 @@
  *   - GENERALIZACION: línea sólida + flecha triangular hueca
  *   - REALIZACION:   línea discontinua + flecha triangular hueca
  *
+ * Desde F55 el trazo es ORTOGONAL con esquinas redondeadas
+ * (getSmoothStepPath, borderRadius 8) — el estilo de codos en ángulo
+ * recto que usan los CASE clásicos (Enterprise Architect, UMLStar) —
+ * en línea con el edgeRouting ORTHOGONAL del layout automático
+ * (canvas/autoLayout.ts). Antes era bezier (curvas).
+ *
  * CONTRATO CICLO 2: `data.id` es el id de la RelacionUML EMBEBIDA del
  * Diagrama — str uuid (Id = string), no int serial (el id del EDGE de
  * React Flow es aparte y también string).
@@ -19,7 +25,7 @@
 import {
   BaseEdge,
   EdgeLabelRenderer,
-  getBezierPath,
+  getSmoothStepPath,
   type EdgeProps,
   type Edge,
 } from '@xyflow/react';
@@ -85,13 +91,16 @@ export function RelationshipEdge({
   data,
   selected,
 }: EdgeProps<RelationshipEdgeType>) {
-  const [edgePath, labelX, labelY] = getBezierPath({
+  // Codos ortogonales redondeados (F55): mismo estilo que el routing
+  // ORTHOGONAL del layout automático de elkjs.
+  const [edgePath, labelX, labelY] = getSmoothStepPath({
     sourceX,
     sourceY,
     sourcePosition,
     targetX,
     targetY,
     targetPosition,
+    borderRadius: 8,
   });
 
   const tipo = data?.tipo ?? 'ASOCIACION';
